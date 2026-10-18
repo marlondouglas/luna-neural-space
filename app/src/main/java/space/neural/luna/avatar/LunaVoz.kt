@@ -109,10 +109,12 @@ object LunaVoz {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 8_000; readTimeout = 30_000
                 setRequestProperty("content-type", "application/json; charset=utf-8")
                 setRequestProperty("User-Agent", "LunaNeuralSpace-Android")
+                space.neural.luna.licenca.Licenca.cabecalhos(this)
             }
             try {
                 c.outputStream.use { it.write(JSONObject().put("text", texto.take(600)).put("cache", fixa).toString().toByteArray()) }
                 val code = c.responseCode
+                space.neural.luna.licenca.Licenca.respostaServidor(code)
                 if (code == 429 || code == 503) {
                     val seg = c.getHeaderField("retry-after")?.toLongOrNull()?.coerceIn(5, 120) ?: 20
                     semServidorAte = System.currentTimeMillis() + seg * 1000

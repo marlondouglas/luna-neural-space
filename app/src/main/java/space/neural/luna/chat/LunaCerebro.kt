@@ -45,9 +45,11 @@ class RemotoCerebro(private val endpoint: String = BuildConfig.LUNA_CHAT_ENDPOIN
             connectTimeout = 10_000; readTimeout = 50_000
             setRequestProperty("content-type", "application/json; charset=utf-8")
             setRequestProperty("User-Agent", "LunaNeuralSpace-Android")
+            space.neural.luna.licenca.Licenca.cabecalhos(this)
         }
         try {
             c.outputStream.use { it.write(body.toByteArray()) }
+            space.neural.luna.licenca.Licenca.respostaServidor(c.responseCode)
             if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
             val r = JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("reply").trim()
             check(r.isNotEmpty()) { "Resposta vazia" }

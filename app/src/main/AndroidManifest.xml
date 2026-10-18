@@ -42,6 +42,16 @@
             </intent-filter>
         </activity>
 
+        <!-- v0.1.6: conta obrigatória e licença (teste grátis / assinatura). -->
+        <activity
+            android:name=".conta.LoginActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".licenca.LicencaActivity"
+            android:exported="false" />
+
         <activity
             android:name=".chat.ChatActivity"
             android:exported="false"

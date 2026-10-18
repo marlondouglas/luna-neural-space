@@ -31,8 +31,8 @@ android {
         applicationId = "space.neural.luna"
         minSdk = 26
         targetSdk = 35
-        versionCode = 105
-        versionName = "0.1.5"
+        versionCode = 106
+        versionName = "0.1.6"
 
         buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
         buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
@@ -42,6 +42,8 @@ android {
         }
         buildConfigField("String", "LUNA_CHAT_ENDPOINT", "\"$chat\"")
         buildConfigField("boolean", "FIREBASE_CONFIGURED", hasGoogleServices.toString())
+        // WhatsApp do suporte (senha de conta por celular, comprovante do Pix, troca de aparelho).
+        buildConfigField("String", "SUPPORT_WHATSAPP", "\"${cfg("SUPPORT_WHATSAPP").ifBlank { "5533987044866" }}\"")
     }
 
     buildTypes {
@@ -90,6 +92,9 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+
+    // QR Code do Pix na tela de assinatura
+    implementation(libs.zxing.core)
 
     // Sala de voz / rádio
     implementation(libs.livekit.android)

@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!portaoLicenca()) { bloqueada = true; return }
         ui = Ui(this); repo = LunaRepositories(this); acoes = TurnoAcoes(repo); dlg = Dialogos(this, repo, lifecycleScope)
         online = temInternet()
         externo = Externo.cache(this)
@@ -145,19 +146,76 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         if (System.currentTimeMillis() - ultima > 30 * 60_000L) atualizarNoticias()
     }
 
+    // ---------------- Conta e licença (v0.1.6) ----------------
+    private var bloqueada = false
+    private lateinit var bannerTeste: android.widget.TextView
+
+    /** Sem conta -> login; teste vencido / versão antiga / sem confirmação -> tela de licença. */
+    private fun portaoLicenca(): Boolean {
+        val l = space.neural.luna.licenca.Licenca
+        if (!l.ativa && l.forcar == null) return true
+        if (l.ativa && !space.neural.luna.conta.Conta.logado()) { space.neural.luna.conta.LoginActivity.abrir(this); finish(); return false }
+        if (!l.decidir(this).liberado) { space.neural.luna.licenca.LicencaActivity.bloquear(this); finish(); return false }
+        return true
+    }
+
+    private fun montarBanner() = ui.text("", 14f, Cores.BRANCO).apply {
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        minHeight = ui.dp(40)
+        setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+        background = ui.fundo(Cores.alpha(Cores.ESMERALDA, 0.12f), Cores.alpha(Cores.ESMERALDA, 0.55f), 14f)
+        isClickable = true; isFocusable = true
+        visibility = View.GONE
+        setOnClickListener { space.neural.luna.licenca.LicencaActivity.assinar(this@MainActivity) }
+    }
+
+    private fun atualizarLicenca(d: space.neural.luna.licenca.LicencaLogica.Decisao) {
+        if (!d.liberado) { space.neural.luna.licenca.LicencaActivity.bloquear(this); finish(); return }
+        val (txt, cor) = when (d) {
+            is space.neural.luna.licenca.LicencaLogica.Decisao.Teste ->
+                "Teste grátis: ${if (d.diasRestantes == 1) "falta 1 dia" else "faltam ${d.diasRestantes} dias"}  ·  Assinar R$ 7/mês ›" to Cores.ESMERALDA
+            is space.neural.luna.licenca.LicencaLogica.Decisao.Pago ->
+                if (d.diasRestantes <= 3) "Sua assinatura vence em ${d.diasRestantes} ${if (d.diasRestantes == 1) "dia" else "dias"}  ·  Renovar ›" to Cores.AMARELO else null to 0
+            else -> null to 0
+        }
+        if (txt == null) { bannerTeste.visibility = View.GONE; return }
+        bannerTeste.text = txt
+        bannerTeste.contentDescription = txt.replace("›", "").replace("·", ".")
+        bannerTeste.background = ui.fundo(Cores.alpha(cor, 0.12f), Cores.alpha(cor, 0.55f), 14f)
+        bannerTeste.visibility = View.VISIBLE
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (bloqueada) return
+        val l = space.neural.luna.licenca.Licenca
+        if (!l.ativa && l.forcar == null) return
+        atualizarLicenca(l.decidir(this))
+        if (l.ativa && l.precisaRevalidar(this)) lifecycleScope.launch {
+            when (val r = l.verificar(this@MainActivity)) {
+                is space.neural.luna.licenca.Licenca.Resultado.Ok -> if (!isFinishing) atualizarLicenca(r.decisao)
+                is space.neural.luna.licenca.Licenca.Resultado.Erro -> if (r.semConta) {
+                    space.neural.luna.conta.Conta.sair(); space.neural.luna.conta.LoginActivity.abrir(this@MainActivity, entrar = true); finish()
+                } else if (!isFinishing) atualizarLicenca(l.decidir(this@MainActivity))
+            }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
+        if (bloqueada) return
         runCatching { rede.registerDefaultNetworkCallback(redeCb) }
         mudouRede()
     }
 
     override fun onStop() {
+        if (bloqueada) { super.onStop(); return }
         if (voz.ativa || voz.escutando) voz.parar(null) // saiu da tela: o microfone não fica aberto
         runCatching { rede.unregisterNetworkCallback(redeCb) }
         super.onStop()
     }
 
-    override fun onDestroy() { voz.destruir(); if (isFinishing) space.neural.luna.avatar.LunaVoz.parar(); super.onDestroy() }
+    override fun onDestroy() { if (bloqueada) { super.onDestroy(); return }; voz.destruir(); if (isFinishing) space.neural.luna.avatar.LunaVoz.parar(); super.onDestroy() }
 
     // ---------------- Luna por voz na tela inicial ----------------
 
@@ -269,6 +327,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
 
         val raiz = ui.vbox()
         raiz.addView(cab.view, ui.mp())
+        bannerTeste = montarBanner()
+        raiz.addView(bannerTeste, ui.mp(ui.dp(8)))
         if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(8)))
 
         fun coluna(id: Int, vararg cards: View): ScrollView {

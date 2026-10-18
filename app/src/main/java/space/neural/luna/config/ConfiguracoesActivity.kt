@@ -49,6 +49,18 @@ class ConfiguracoesActivity : AppCompatActivity() {
         grupo(c, R.drawable.ic_flag, "Planejamento", Cores.VIOLETA) { g ->
             item(g, R.drawable.ic_flag, "Planejamento e metas", "Dias de trabalho, contas fixas, limites e metas") { startActivity(Intent(this, PlanejamentoActivity::class.java)) }
         }
+        if (space.neural.luna.licenca.Licenca.ativa) grupo(c, R.drawable.ic_wallet, "Conta e assinatura", Cores.AMARELO) { g ->
+            val conta = space.neural.luna.conta.Conta
+            item(g, R.drawable.ic_wallet, "Assinatura R$ 7/mês", "Pix, código da conta e \"Já paguei\"") { space.neural.luna.licenca.LicencaActivity.assinar(this) }
+            item(g, R.drawable.ic_close, "Sair da conta", listOf(conta.nome(), conta.exibicao()).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Entrar com outra conta" }) {
+                androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Sair da conta?")
+                    .setMessage("Seus lançamentos ficam guardados. O teste grátis e a assinatura continuam presos à conta.")
+                    .setPositiveButton("Sair") { _, _ ->
+                        space.neural.luna.licenca.Licenca.limpar(this); conta.sair()
+                        space.neural.luna.conta.LoginActivity.abrir(this, entrar = true)
+                    }.setNegativeButton("Cancelar", null).show()
+            }
+        }
         grupo(c, R.drawable.ic_info, "Sistema", Cores.ESMERALDA) { g ->
             item(g, R.drawable.ic_refresh, getString(R.string.atualizacao), "Procurar nova versão do app") { startActivity(Intent(this, AtualizacaoActivity::class.java)) }
             val v = ui.hbox().apply { minimumHeight = ui.dp(48) }
