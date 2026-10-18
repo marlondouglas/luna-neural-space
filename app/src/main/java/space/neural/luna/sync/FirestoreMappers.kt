@@ -4,6 +4,7 @@ import space.neural.luna.data.local.Anotacao
 import space.neural.luna.data.local.Ganho
 import space.neural.luna.data.local.Gasto
 import space.neural.luna.data.local.Meta
+import space.neural.luna.data.local.TipoMeta
 import space.neural.luna.data.local.Turno
 
 /** Conversão entre entidades locais e documentos do Firestore. */
@@ -53,12 +54,13 @@ internal object FirestoreMappers {
     }.getOrNull()
 
     fun meta(x: Meta) = mapOf(
-        "data" to x.data, "valorCentavos" to x.valorCentavos,
+        "data" to x.data, "valorCentavos" to x.valorCentavos, "tipo" to x.tipo,
         "updatedAt" to x.updatedAt, "deleted" to x.deleted,
     )
     fun meta(id: String, m: Map<String, Any?>): Meta? = runCatching {
         Meta(
             id = id, data = m.str("data")!!, valorCentavos = m.long("valorCentavos")!!,
+            tipo = m.str("tipo") ?: TipoMeta.DIA,
             updatedAt = m.long("updatedAt")!!, dirty = false, deleted = m.bool("deleted"),
         )
     }.getOrNull()

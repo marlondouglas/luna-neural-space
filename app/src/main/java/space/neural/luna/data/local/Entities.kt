@@ -1,5 +1,6 @@
 package space.neural.luna.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -28,6 +29,21 @@ object EstadoTurno {
     const val CAFE = "CAFE"
     const val FECHADO = "FECHADO"
     const val CONCLUIDO = "CONCLUIDO"
+}
+
+/** Período de uma meta. */
+object TipoMeta {
+    const val DIA = "DIA"
+    const val SEMANA = "SEMANA"
+    const val MES = "MES"
+}
+
+/** Categorias de gasto. */
+object CategoriaGasto {
+    /** Recarga elétrica do Geely (não é combustível). */
+    const val ENERGIA = "ENERGIA"
+    const val MANUTENCAO = "MANUTENCAO"
+    const val OUTRO = "OUTRO"
 }
 
 /** Aplicativos de corrida. */
@@ -91,9 +107,15 @@ data class Gasto(
 @Entity(tableName = "metas", indices = [Index("data")])
 data class Meta(
     @PrimaryKey override val id: String = newId(),
-    /** Dia (yyyy-MM-dd) a que a meta se aplica. */
+    /**
+     * Dia (yyyy-MM-dd) em que a meta passou a valer. A meta mais recente de cada
+     * [tipo] vale até ser trocada.
+     */
     val data: String,
     val valorCentavos: Long,
+    /** Um dos valores de [TipoMeta]. */
+    @ColumnInfo(defaultValue = "DIA")
+    val tipo: String = TipoMeta.DIA,
     override val updatedAt: Long = System.currentTimeMillis(),
     override val dirty: Boolean = true,
     override val deleted: Boolean = false,

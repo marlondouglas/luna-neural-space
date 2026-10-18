@@ -25,6 +25,18 @@ class LunaRepositories(context: Context) {
     // ---- Turno ----
     fun observeTurnos(): Flow<List<Turno>> = db.turnoDao().observeAll()
     fun observeTurnoAtual(): Flow<Turno?> = db.turnoQueries().observeAtual()
+    fun observeTurnoCorrente(): Flow<Turno?> = db.turnoQueries().observeCorrente()
+    fun observePendentes(): Flow<Int> = db.syncQueries().observePendentes()
+    suspend fun turnoPorId(id: String): Turno? = db.turnoDao().byId(id)
+
+    /**
+     * Liga ao turno os ganhos e gastos do dia [data] lançados sem turno, para que
+     * fiquem no histórico daquele turno (usado ao fechar/concluir).
+     */
+    suspend fun vincularSoltos(turnoId: String, data: String) {
+        db.ganhoDao().soltos(data).forEach { salvarGanho(it.copy(turnoId = turnoId)) }
+        db.gastoDao().soltos(data).forEach { salvarGasto(it.copy(turnoId = turnoId)) }
+    }
 
     suspend fun salvarTurno(turno: Turno) {
         db.turnoDao().upsert(turno.copy(updatedAt = now(), dirty = true))

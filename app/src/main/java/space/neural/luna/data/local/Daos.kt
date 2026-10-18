@@ -38,6 +38,9 @@ interface GanhoDao {
     @Query("SELECT * FROM ganhos WHERE dirty = 1")
     suspend fun dirty(): List<Ganho>
 
+    @Query("SELECT * FROM ganhos WHERE deleted = 0 AND turnoId IS NULL AND data = :data")
+    suspend fun soltos(data: String): List<Ganho>
+
     /** Só limpa a marca se o registro não mudou desde o envio. */
     @Query("UPDATE ganhos SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
     suspend fun markClean(id: String, updatedAt: Long)
@@ -56,6 +59,9 @@ interface GastoDao {
 
     @Query("SELECT * FROM gastos WHERE dirty = 1")
     suspend fun dirty(): List<Gasto>
+
+    @Query("SELECT * FROM gastos WHERE deleted = 0 AND turnoId IS NULL AND data = :data")
+    suspend fun soltos(data: String): List<Gasto>
 
     /** Só limpa a marca se o registro não mudou desde o envio. */
     @Query("UPDATE gastos SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
@@ -105,4 +111,19 @@ interface AnotacaoDao {
 interface TurnoQueries {
     @Query("SELECT * FROM turnos WHERE deleted = 0 AND estado IN ('ATIVO','PAUSADO','CAFE') ORDER BY inicio DESC LIMIT 1")
     fun observeAtual(): Flow<Turno?>
+
+    /** Turno em andamento ou fechado aguardando "Concluir" (o que o dashboard mostra). */
+    @Query("SELECT * FROM turnos WHERE deleted = 0 AND estado IN ('ATIVO','PAUSADO','CAFE','FECHADO') ORDER BY inicio DESC LIMIT 1")
+    fun observeCorrente(): Flow<Turno?>
+}
+
+/** Quantos registros ainda não foram enviados ao Firestore (indicador de sincronização). */
+@Dao
+interface SyncQueries {
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM turnos WHERE dirty = 1) + (SELECT COUNT(*) FROM ganhos WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM gastos WHERE dirty = 1) + (SELECT COUNT(*) FROM metas WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM anotacoes WHERE dirty = 1)"
+    )
+    fun observePendentes(): Flow<Int>
 }
