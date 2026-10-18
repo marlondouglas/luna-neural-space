@@ -31,11 +31,16 @@ android {
         applicationId = "space.neural.luna"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "0.1.2"
+        versionCode = 103
+        versionName = "0.1.3"
 
         buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
         buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
+        // Conversa com a Luna: LUNA_CHAT_ENDPOINT ou, se vazio, o servidor de tokens com /chat no lugar de /token.
+        val chat = cfg("LUNA_CHAT_ENDPOINT").ifBlank {
+            cfg("LIVEKIT_TOKEN_ENDPOINT").takeIf { it.isNotBlank() }?.trimEnd('/')?.removeSuffix("/token")?.let { "$it/chat" } ?: ""
+        }
+        buildConfigField("String", "LUNA_CHAT_ENDPOINT", "\"$chat\"")
         buildConfigField("boolean", "FIREBASE_CONFIGURED", hasGoogleServices.toString())
     }
 
@@ -44,6 +49,11 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { t -> System.getProperty("luna.shots")?.let { t.systemProperty("luna.shots", it) } }
     }
 
     buildFeatures {
@@ -83,4 +93,9 @@ dependencies {
 
     // Sala de voz / rádio
     implementation(libs.livekit.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.work.testing)
 }
