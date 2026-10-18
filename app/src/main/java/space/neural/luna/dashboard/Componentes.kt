@@ -28,7 +28,7 @@ interface AcoesPainel {
 
 // ---------------- Cabeçalho ----------------
 class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito: Boolean = false) {
-    val view: LinearLayout = ui.hbox().apply { setPadding(0, 0, 0, ui.dp(4)) }
+    val view: LinearLayout = ui.hbox().apply { setPadding(0, 0, 0, ui.dp(6)); gravity = Gravity.CENTER_VERTICAL; minimumHeight = ui.dp(52) }
     private val saudacao = ui.text("", if (compacto) 18f else 22f, Cores.BRANCO, bold = true)
     private val data = ui.text("", 13f, Cores.BRANCO_70)
     private val aoVivo = ui.text("● AO VIVO", 11f, Cores.MAGENTA, bold = true).apply {
@@ -63,7 +63,7 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito:
         view.addView(textos, ui.peso(1f, if (estreito) 0 else ui.dp(12)))
         view.addView(aoVivo, ui.wc(ui.dp(4)))
         view.addView(sync)
-        view.addView(ui.botaoIcone(R.drawable.ic_more, "Mais opções: histórico, anotações, Teste Firebase, Atualização", Cores.BRANCO) { a.menu(it) })
+        view.addView(ui.botaoIcone(R.drawable.ic_settings, "Configurações", Cores.BRANCO) { a.menu(it) })
     }
 
     fun bind(p: Painel, online: Boolean, nuvem: Boolean) {
@@ -110,6 +110,10 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
     private var turno: space.neural.luna.data.local.Turno? = null
     private var fase = MaquinaTurno.Fase.PRONTO
     private val titulo = ui.titulo("Turno 1/4")
+    private val info = ui.text("", 13f, Cores.BRANCO_70).apply { isClickable = true; isFocusable = true; minHeight = ui.dp(32) }
+    private val porHora = ui.text("", 13f, Cores.BRANCO_70)
+    private val faixa = ui.vbox()
+    private var liqDia = 0L
 
     init {
         val topo = ui.hbox()
@@ -131,6 +135,47 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
             view.addView(legenda, ui.mp()); view.addView(contador, ui.mp()); view.addView(parado, ui.mp())
             view.addView(botoes, ui.mp(ui.dp(12)))
         }
+        // v0.1.5: ações que eram do card "Resumo do dia" (removido) ficam aqui no turno
+        view.addView(ui.divisor())
+        val acoes = ui.hbox()
+        acoes.addView(ui.comIcone(ui.botao("Ganho", Ui.Estilo.CHEIO_ESMERALDA) { a.lancarGanho(null) }.apply { contentDescription = "Lançar ganho" }, R.drawable.ic_add), ui.peso(1f))
+        acoes.addView(ui.comIcone(ui.botao("Gasto") { a.lancarGasto(null) }.apply { contentDescription = "Lançar gasto" }, R.drawable.ic_add), ui.peso(1f, ui.dp(8)))
+        acoes.addView(ui.comIcone(ui.botao("Recarga") { a.lancarGasto(space.neural.luna.data.local.CategoriaGasto.ENERGIA) }.apply { contentDescription = "Lançar recarga" }, R.drawable.ic_bolt), ui.peso(1f, ui.dp(8)))
+        view.addView(acoes, ui.mp())
+        info.setOnClickListener { a.detalheDia() }
+        view.addView(info, ui.mp(ui.dp(8)))
+        view.addView(porHora, ui.mp(ui.dp(2)))
+        view.addView(faixa, ui.mp())
+    }
+
+
+    /** Recarga/manutenção do dia, ganho por hora e a sugestão de encerrar (antes no "Resumo do dia"). */
+    fun bindResumo(p: Painel, agora: Long, sugerirParar: Boolean) {
+        val r = p.resumo
+        liqDia = r.liquidoCentavos
+        val en = if (r.temRecarga) "⚡ Energia ${Fmt.reais(r.energiaCentavos)}" + (if (r.energiaKwh > 0) " (${Fmt.kwh(r.energiaKwh)} kWh)" else "") else "⚡ Nenhuma recarga hoje"
+        info.text = "$en  ·  🔧 Manutenção ${Fmt.reais(r.manutencaoCentavos)}" + if (r.outrosCentavos > 0) "  ·  Outros ${Fmt.reais(r.outrosCentavos)}" else ""
+        info.contentDescription = info.text.toString() + ". Toque para ver os lançamentos do dia"
+        tickResumo(p, agora)
+        faixa.removeAllViews()
+        if (sugerirParar) {
+            val ph = Calculos.porHoraCentavos(r.liquidoCentavos, p.trabalhoDia(agora)) ?: 0
+            val f = ui.vbox(ui.dp(12)).apply { background = ui.fundo(Cores.alpha(Cores.CIANO, 0.10f), Cores.alpha(Cores.CIANO, 0.6f), 14f) }
+            f.addView(ui.hbox().apply {
+                addView(ui.icone(R.drawable.ic_info, Cores.CIANO, 18))
+                addView(ui.text("Seu ganho por hora caiu para ${Fmt.reaisCurto(ph)}/h. Que tal encerrar?", 15f, Cores.CIANO), ui.peso(1f, ui.dp(8)))
+            })
+            f.addView(ui.hbox().apply {
+                addView(ui.botao("Fechar turno", Ui.Estilo.CHEIO_VIOLETA) { a.fecharTurno() }, ui.peso(1f))
+                addView(ui.botao("Agora não") { a.pararAgoraNao() }, ui.peso(1f, ui.dp(8)))
+            }, ui.mp(ui.dp(8)))
+            faixa.addView(f, ui.mp(ui.dp(10)))
+        }
+    }
+
+    fun tickResumo(p: Painel, agora: Long) {
+        val ph = Calculos.porHoraCentavos(liqDia, p.trabalhoDia(agora))
+        porHora.text = if (ph != null) "Ganho por hora hoje: ${Fmt.reais(ph)}/h" else "Ganho por hora aparece após 15 min de turno"
     }
 
     fun bind(sit: MaquinaTurno.Situacao) {
@@ -160,7 +205,11 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
                     princ("Iniciar turno $n", R.drawable.ic_play) { a.iniciar() }
                     if (sit.anterior != null) sec(1, "Corrigir turno ${sit.anterior.numero}", R.drawable.ic_wrench) { a.corrigir() }
                     else sec(1, "Calendário", R.drawable.ic_calendar, "Calendário: lançar dia esquecido") { a.diaEsquecido() }
-                    if (n > 1) sec(2, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                    if (n > 1) {
+                        // v0.1.5: logo depois de fechar um turno também dá para voltar/zerar
+                        sec(2, zerarTxt, R.drawable.ic_refresh, "Zerar tempo: voltar ao turno ${n - 1} ou zerar o dia") { a.zerar() }
+                        sec(2, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                    }
                 }
                 MaquinaTurno.Fase.ATIVO -> {
                     princ("Pausar", R.drawable.ic_pause) { a.pausar() }
@@ -384,65 +433,6 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
     private fun nome(t: String) = when (t) { TipoMeta.SEMANA -> "da semana"; TipoMeta.MES -> "do mês"; else -> "do dia" }
 }
 
-// ---------------- Notícias e clima (componente 5) ----------------
-class NoticiasCard(private val ui: Ui, private val lado: Boolean, private val a: AcoesPainel) {
-    val view = ui.card(acento = Cores.CIANO)
-    private val corpo = if (lado) ui.hbox().apply { gravity = Gravity.TOP } else ui.vbox()
-    private val clima = ui.vbox().apply { isClickable = true; isFocusable = true; setOnClickListener { a.previsaoHoras() } }
-    private val lista = ui.vbox()
-    private val aviso = ui.vbox()
-
-    init {
-        val topo = ui.hbox()
-        topo.addView(ui.tituloIcone(R.drawable.ic_news, "Governador Valadares", Cores.CIANO), ui.peso(1f))
-        topo.addView(ui.botaoIcone(R.drawable.ic_refresh, "Atualizar notícias e clima", Cores.CIANO) { a.atualizarNoticias() })
-        view.addView(topo, ui.mp())
-        view.addView(aviso, ui.mp())
-        corpo.addView(clima, if (lado) LinearLayout.LayoutParams(ui.dp(130), -2) else ui.mp(ui.dp(4)))
-        corpo.addView(lista, if (lado) ui.peso(1f, ui.dp(12)) else ui.mp(ui.dp(8)))
-        view.addView(corpo, ui.mp(ui.dp(6)))
-    }
-
-    fun bind(d: Externo.Dados?, online: Boolean, carregando: Boolean) {
-        aviso.removeAllViews(); clima.removeAllViews(); lista.removeAllViews()
-        if (d == null) {
-            lista.addView(ui.text(if (carregando) "Carregando notícias e clima…" else "Notícias e clima aparecem quando houver internet.", 14f, Cores.BRANCO_70))
-            return
-        }
-        if (!online) {
-            val hora = java.time.Instant.ofEpochMilli(d.atualizadoEm).atZone(java.time.ZoneId.systemDefault())
-            val quando = if (hora.toLocalDate() == LocalDate.now()) "às %02d:%02d".format(hora.hour, hora.minute) else "em ${Fmt.dataCurta(hora.toLocalDate())}"
-            aviso.addView(ui.text("ⓘ Sem internet — última atualização $quando", 13f, Cores.CIANO), ui.mp(ui.dp(4)))
-        }
-        d.clima?.let { c ->
-            val (ic, desc) = Externo.descricaoTempo(c.codigo)
-            clima.addView(ui.hbox().apply {
-                addView(ui.text("${Math.round(c.tempC)}°", 34f, Cores.BRANCO, bold = true))
-                addView(ui.text(ic, 26f, Cores.CIANO), ui.wc(ui.dp(6)))
-            })
-            clima.addView(ui.text(desc, 13f, Cores.BRANCO_70))
-            clima.addView(ui.text("Mín ${Math.round(c.minC)}° · Máx ${Math.round(c.maxC)}°", 13f, Cores.BRANCO_70))
-            clima.addView(ui.text("Chuva: ${c.chuvaProx}% nas próx. horas", 13f, Cores.CIANO))
-            clima.contentDescription = "Clima: ${Math.round(c.tempC)} graus, $desc. Mínima ${Math.round(c.minC)}, máxima ${Math.round(c.maxC)}. Chance de chuva ${c.chuvaProx} por cento. Toque para a previsão por hora"
-        }
-        if (d.noticias.isEmpty()) lista.addView(ui.text("Sem manchetes no momento.", 14f, Cores.BRANCO_70))
-        d.noticias.forEach { n ->
-            val item = ui.vbox().apply {
-                isClickable = true; isFocusable = true; minimumHeight = ui.dp(48)
-                setPadding(0, ui.dp(4), 0, ui.dp(4))
-                setOnClickListener { a.abrirNoticia(n) }
-            }
-            val rot = ui.hbox()
-            if (n.br381) rot.addView(ui.selo("BR-381", Cores.CIANO).apply { textSize = 11f })
-            val hora = if (n.quando > 0) java.time.Instant.ofEpochMilli(n.quando).atZone(java.time.ZoneId.systemDefault()).let { "%02d/%02d %02d:%02d".format(it.dayOfMonth, it.monthValue, it.hour, it.minute) } else ""
-            rot.addView(ui.text("${n.fonte} · $hora", 12f, Cores.BRANCO_70), ui.wc(if (n.br381) ui.dp(6) else 0))
-            item.addView(rot)
-            item.addView(ui.truncar(ui.text(n.titulo, 15f, Cores.BRANCO), 2))
-            lista.addView(item, ui.mp(ui.dp(4)))
-        }
-    }
-}
-
 // ---------------- Dica do dia + versículo (componente 6) ----------------
 class DicaCard(private val ui: Ui, private val a: AcoesPainel) {
     val view = ui.card()
@@ -496,10 +486,14 @@ class KpiStrip(private val ui: Ui, colunas: Int) {
     private val liq = Kpi("Total líquido", R.drawable.ic_wallet, Cores.ESMERALDA)
     private val corr = Kpi("Corridas", R.drawable.ic_car, Cores.CIANO)
     private val hora = Kpi("Ganho/hora", R.drawable.ic_timer, Cores.MAGENTA)
-    private val meta = Kpi("Meta", R.drawable.ic_flag, Cores.LARANJA)
+    /** v0.1.5: no lugar do KPI "Meta", o resumo dos limites de gasto (toque abre os limites). */
+    private val lim = Kpi("Limites", R.drawable.ic_wallet, Cores.LARANJA)
+    var aoTocarLimites: () -> Unit = {}
 
     init {
-        val todos = listOf(liq, corr, hora, meta)
+        lim.card.isClickable = true; lim.card.isFocusable = true
+        lim.card.setOnClickListener { aoTocarLimites() }
+        val todos = listOf(liq, corr, hora, lim)
         if (colunas >= 4) {
             view.addView(ui.hbox().apply { gravity = Gravity.TOP; todos.forEachIndexed { i, k -> addView(k.card, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else ui.dp(12) }) } }, ui.mp())
         } else {
@@ -532,21 +526,39 @@ class KpiStrip(private val ui: Ui, colunas: Int) {
         hora.sub.text = "Trabalho ${Fmt.hms(e.trabalhoMs).substring(0, 5)} h"
         hora.card.contentDescription = "Ganho por hora: " + (ph?.let { Fmt.reais(it) } ?: "sem dados")
 
-        val m = e.meta
-        val nomeMeta = when (m.tipo) { space.neural.luna.data.local.TipoMeta.SEMANA -> "da semana"; space.neural.luna.data.local.TipoMeta.MES -> "do mês"; else -> "do dia" }
-        if (m.metaCentavos == null) { meta.valor.text = "—"; meta.sub.text = "Defina no Planejamento"; meta.pil.removeAllViews() }
-        else {
-            Anima.contar(meta.valor, meta.ult, m.percentual.toLong(), { "$it%" }); meta.ult = m.percentual.toLong()
-            meta.sub.text = if (m.percentual >= 100) "Batida! +${Fmt.reaisCurto(m.acimaCentavos)}" else "Faltam ${Fmt.reaisCurto(m.faltaCentavos)} ($nomeMeta)"
-            meta.pil.removeAllViews()
-            meta.pil.addView(ui.text(if (m.percentual >= 100) "✓ META BATIDA" else "de ${Fmt.reaisCurto(m.metaCentavos)}", 11f,
-                if (m.percentual >= 100) Cores.ESMERALDA else Cores.LARANJA, bold = true).apply {
-                setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3))
-                background = ui.fundo(Cores.alpha(Cores.LARANJA, 0.12f), Cores.alpha(Cores.LARANJA, 0.5f), 10f)
-            }, android.widget.FrameLayout.LayoutParams(-2, -2))
-        }
-        meta.card.contentDescription = "Meta $nomeMeta: ${m.percentual} por cento"
     }
+
+    /** Total dos limites do mês: gasto / restante; vermelho se algum passou. */
+    fun bindLimites(envs: List<Plano.Envelope>) {
+        lim.pil.removeAllViews()
+        if (envs.isEmpty()) {
+            lim.valor.text = "—"; lim.valor.setTextColor(Cores.BRANCO); lim.sub.text = "Crie limites no Planejamento"
+            lim.card.contentDescription = "Limites de gasto: nenhum. Toque para criar"
+            return
+        }
+        val r = ResumoLimites.de(envs)
+        val cor = when { r.excedidos > 0 -> Cores.CORAL; r.fracao >= 0.8f -> Cores.LARANJA; else -> Cores.ESMERALDA }
+        lim.valor.text = Fmt.reaisCurto(r.restanteCentavos); lim.valor.setTextColor(cor)
+        lim.sub.text = "Gasto ${Fmt.reaisCurto(r.gastoCentavos)} de ${Fmt.reaisCurto(r.limiteCentavos)}"
+        lim.pil.addView(ui.text(if (r.excedidos > 0) "⚠ ${r.excedidos} PASSOU" + (if (r.excedidos > 1) "RAM" else "") else "restante no mês", 11f, cor, bold = true).apply {
+            setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3))
+            background = ui.fundo(Cores.alpha(cor, 0.12f), Cores.alpha(cor, 0.5f), 10f)
+        }, android.widget.FrameLayout.LayoutParams(-2, -2))
+        lim.card.contentDescription = "Limites de gasto: restam ${Fmt.reais(r.restanteCentavos)} de ${Fmt.reais(r.limiteCentavos)}." +
+            (if (r.excedidos > 0) " ${r.excedidos} limite passou do valor." else "") + " Toque para ver os limites"
+    }
+}
+
+/** Soma dos envelopes (limites) do mês para o KPI. */
+data class ResumoLimites(val limiteCentavos: Long, val gastoCentavos: Long, val restanteCentavos: Long, val excedidos: Int) {
+    val fracao get() = if (limiteCentavos <= 0) 0f else gastoCentavos.toFloat() / limiteCentavos
+    companion object {
+        fun de(envs: List<Plano.Envelope>) = ResumoLimites(
+            envs.sumOf { it.limite.limiteCentavos }, envs.sumOf { it.gastoCentavos },
+            envs.sumOf { it.restanteCentavos }, envs.count { it.excedido },
+        )
+    }
+
 }
 
 /** Seletor Hoje / Semana / Mês / Ano. */
@@ -571,7 +583,7 @@ class SeletorPeriodo(private val ui: Ui, private val aoMudar: (Periodo) -> Unit)
 }
 
 /** Líquido do período (área) + bruto por app (barras 3D). */
-class GraficoCard(private val ui: Ui) {
+class GraficoCard(private val ui: Ui, alturaDp: Int = 190) {
     val view = ui.card(acento = Cores.CIANO)
     private val titulo = ui.titulo("Líquido")
     private val total = ui.ajustavel("R$ 0,00", 26f, 16f)
@@ -586,6 +598,7 @@ class GraficoCard(private val ui: Ui) {
             addView(pil)
         })
         view.addView(total, ui.mp(ui.dp(4)))
+        area.alturaDp = alturaDp
         view.addView(area, ui.mp(ui.dp(8)))
         view.addView(ui.divisor())
         view.addView(ui.text("BRUTO POR APP", 11f, Cores.BRANCO_70, bold = true).apply { letterSpacing = 0.1f })

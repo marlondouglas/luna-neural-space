@@ -5,7 +5,6 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -48,15 +47,24 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var lista: LinearLayout
     private lateinit var rolagem: ScrollView
     private lateinit var entrada: EditText
-    private lateinit var orb: LunaOrbView
+    private lateinit var orb: space.neural.luna.avatar.LunaAvatarView
     private lateinit var status: TextView
     private var digitando: View? = null
     private lateinit var conversa: LunaConversa
     private var botoes: View? = null
-    private var tts: TextToSpeech? = null
     private var falar = false
     private var job: Job? = null
     private var fotoUri: android.net.Uri? = null
+    private lateinit var micBtn: android.widget.ImageButton
+    /** v0.1.5: conversa por voz contínua (ouve de novo quando ela termina; barge-in enquanto fala). */
+    private val voz by lazy {
+        space.neural.luna.voz.ConversaVoz(this, object : space.neural.luna.voz.ConversaVoz.Ouvinte {
+            override fun ouvindo(parcial: String?) = mostrarOuvindo(true, parcial)
+            override fun ouviu(texto: String) { mostrarOuvindo(false, null); enviar(texto, voz = true) }
+            override fun encerrou(motivo: String?) { mostrarOuvindo(false, null); motivo?.let { status.text = it } }
+        })
+    }
+    private val permMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) ditar() else Toast.makeText(this, "Sem permissão do microfone.", Toast.LENGTH_SHORT).show() }
 
     private val ditado = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
@@ -68,14 +76,16 @@ class ChatActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ui = Ui(this); repo = LunaRepositories(this); conversa = LunaConversa.get(this)
-        falar = getSharedPreferences("dashboard", 0).getBoolean("chat_falar", false)
+        falar = getSharedPreferences("dashboard", 0).getBoolean("chat_falar", true)
         val raiz = ui.vbox()
 
         // Cabeçalho
         val cab = ui.hbox().apply { setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(8)) }
         cab.addView(ui.botaoIcone(R.drawable.ic_close, "Voltar ao painel") { finish() })
-        orb = LunaOrbView(this)
-        cab.addView(orb, LinearLayout.LayoutParams(ui.dp(84), ui.dp(84)).apply { leftMargin = ui.dp(4) })
+        // v0.1.5: Luna animada maior no topo, falando cada resposta
+        orb = space.neural.luna.avatar.LunaAvatarView(this, focoY = 0.45f, zoom = 0.84f)
+        val lado = if (resources.configuration.smallestScreenWidthDp >= 600) 148 else 116
+        cab.addView(orb, LinearLayout.LayoutParams(ui.dp(lado), ui.dp(lado)).apply { leftMargin = ui.dp(4) })
         val tit = ui.vbox()
         tit.addView(ui.text("Luna", 22f, Cores.BRANCO, bold = true).apply { setShadowLayer(16f, 0f, 0f, Cores.alpha(Cores.VIOLETA, 0.8f)) })
         status = ui.text("", 13f, Cores.CIANO)
@@ -89,7 +99,7 @@ class ChatActivity : AppCompatActivity() {
         som.setOnClickListener {
             falar = !falar; pintarSom()
             getSharedPreferences("dashboard", 0).edit().putBoolean("chat_falar", falar).apply()
-            if (!falar) tts?.stop()
+            if (!falar) space.neural.luna.avatar.LunaVoz.parar()
         }
         pintarSom()
         cab.addView(som)
@@ -111,7 +121,9 @@ class ChatActivity : AppCompatActivity() {
         // Entrada
         val barra = ui.hbox().apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(12)) }
         barra.addView(ui.botaoIcone(R.drawable.ic_camera, "Foto de nota fiscal: câmera ou galeria", Cores.MAGENTA) { escolherFoto(it) })
-        barra.addView(ui.botaoIcone(R.drawable.ic_mic, "Falar com a Luna", Cores.CIANO) { ditar() })
+        micBtn = ui.botaoIcone(R.drawable.ic_mic, "Falar com a Luna", Cores.CIANO) { alternarVoz() }
+        barra.addView(micBtn)
+        orb.setOnClickListener { if (voz.ativa || voz.escutando) pararVoz() else if (space.neural.luna.avatar.LunaVoz.ocupada) space.neural.luna.avatar.LunaVoz.parar() else alternarVoz() }
         entrada = EditText(this).apply {
             hint = "Fale com a Luna…"; setTextColor(Cores.BRANCO); setHintTextColor(Cores.BRANCO_70)
             textSize = 16f; minHeight = ui.dp(48); maxLines = 4
@@ -143,7 +155,27 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { voz.destruir(); if (isFinishing) space.neural.luna.avatar.LunaVoz.parar(); super.onDestroy() }
+    override fun onStop() { if (voz.ativa || voz.escutando) voz.parar(null); super.onStop() }
+
+    private fun alternarVoz() {
+        if (voz.ativa || voz.escutando) { pararVoz(); return }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permMic.launch(android.Manifest.permission.RECORD_AUDIO); return
+        }
+        ditar()
+    }
+
+    private fun pararVoz() { voz.parar(null); space.neural.luna.avatar.LunaVoz.parar(); atualizarStatus(null) }
+
+    /** Estado "Ouvindo…": aro ciano pulsando na Luna, status e microfone acesos. */
+    private fun mostrarOuvindo(sim: Boolean, parcial: String?) {
+        orb.ouvindo = sim
+        micBtn.background = if (sim) ui.fundo(Cores.alpha(Cores.CIANO, 0.25f), Cores.CIANO, 24f) else null
+        micBtn.contentDescription = if (sim) "Ouvindo. Toque para parar" else "Falar com a Luna"
+        if (sim) { status.text = "🎙 Ouvindo…" + (parcial?.let { " “$it”" } ?: " (toque na Luna para parar)"); status.setTextColor(Cores.CIANO) }
+        else atualizarStatus(null)
+    }
 
     private fun atualizarStatus(usouIa: Boolean?) {
         status.text = when {
@@ -154,6 +186,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun ditar() {
+        if (voz.disponivel()) { space.neural.luna.avatar.LunaVoz.parar(); voz.iniciar(); return }
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
@@ -184,7 +217,7 @@ class ChatActivity : AppCompatActivity() {
 
     private fun responder(r: LunaConversa.Resposta) {
         bolha(r.texto, false)
-        if (falar) ler(r.texto)
+        if (falar || voz.ativa) ler(r.texto)
         if (r.botoes.isEmpty()) return
         val grade = ui.vbox()
         r.botoes.chunked(2).forEach { par ->
@@ -286,13 +319,9 @@ class ChatActivity : AppCompatActivity() {
     private fun rolar() = rolagem.post { rolagem.fullScroll(View.FOCUS_DOWN) }
 
     private fun ler(texto: String) {
-        val limpo = texto.replace(Regex("[\\p{So}\\p{Cn}]"), "")
-        val t = tts
-        if (t == null) {
-            tts = TextToSpeech(this) { st ->
-                if (st == TextToSpeech.SUCCESS) { tts?.language = Locale.forLanguageTag("pt-BR"); tts?.speak(limpo, TextToSpeech.QUEUE_FLUSH, null, "luna") }
-            }
-        } else t.speak(limpo, TextToSpeech.QUEUE_FLUSH, null, "luna")
+        if (voz.ativa) { voz.falar(texto); return } // conversa contínua: volta a ouvir quando ela terminar
+        orb.ativa = true
+        space.neural.luna.avatar.LunaVoz.falar(this, texto) { orb.ativa = false }
     }
 
     companion object { const val EXTRA_PERGUNTA = "pergunta" }

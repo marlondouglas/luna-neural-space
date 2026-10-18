@@ -71,7 +71,10 @@ class AreaGlow(ctx: Context) : GraficoAnimado(ctx) {
         if (mudou) animar(1100) else invalidate()
     }
 
-    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(getDefaultSize(suggestedMinimumWidth, w), (190 * d).toInt())
+    /** Altura do gráfico (v0.1.5: maior no tablet, ocupando o espaço liberado). */
+    var alturaDp = 190
+        set(v) { field = v; requestLayout() }
+    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(getDefaultSize(suggestedMinimumWidth, w), (alturaDp * d).toInt())
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         linha.shader = LinearGradient(0f, 0f, w.toFloat(), 0f, intArrayOf(Cores.VIOLETA, Cores.CIANO, Cores.MAGENTA), null, Shader.TileMode.CLAMP)

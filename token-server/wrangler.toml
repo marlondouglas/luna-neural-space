@@ -15,6 +15,9 @@ TOKEN_TTL_SECONDS = "14400"
 GEMINI_MODEL = "gemini-flash-latest"
 # Modelo reserva do Workers AI, usado se o Gemini falhar.
 CHAT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+# Voz da Luna (POST /tts): Gemini TTS, voz Kore. Reserva: Workers AI (melotts).
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
+TTS_VOICE = "Kore"
 
 # Workers AI (plano gratuito), usado em POST /chat.
 [ai]

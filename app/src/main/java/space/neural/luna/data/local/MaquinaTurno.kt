@@ -73,6 +73,57 @@ object MaquinaTurno {
     fun zerar(t: Turno, agora: Long): Turno =
         t.copy(estado = EstadoTurno.PRONTO, trabalhoMs = 0, paradoMs = 0, inicio = agora, ultimoEvento = agora, fim = null)
 
+    // ---------------- Zerar / voltar (v0.1.5) ----------------
+
+    /** Turno fechado (ou concluído e reaberto) imediatamente antes do turno [numero] de hoje. */
+    fun anteriorFechado(dia: List<Turno>, numero: Int): Turno? =
+        dia.filter { it.numero < numero && (it.estado == EstadoTurno.FECHADO || it.estado == EstadoTurno.CONCLUIDO) }
+            .maxWithOrNull(compareBy({ it.numero }, { it.inicio }))
+
+    /** Resultado de "Voltar para o turno anterior": [excluir] = turno N atual (pode não existir), [reaberto] = turno N−1. */
+    data class Volta(val excluir: Turno?, val reaberto: Turno)
+
+    /** Até quanto tempo depois de fechar ainda é "desfazer na hora" (o tempo conta como trabalho). */
+    const val DESFAZER_NA_HORA_MS = 2 * 60_000L
+
+    /**
+     * Desfaz o último "Fechar turno": apaga o turno N atual e reabre o N−1 (sem horário de fim).
+     * - N ainda não iniciado: se voltou logo (≤ 2 min), N−1 continua contando como se nunca tivesse
+     *   fechado; senão o intervalo vira tempo parado e o turno N−1 volta PAUSADO (é só tocar em Retomar).
+     * - N já iniciado: o tempo de N (trabalho e parado) passa para o N−1, que continua no mesmo estado
+     *   de N (contando ou pausado); o intervalo entre fechar N−1 e iniciar N conta como parado.
+     */
+    fun voltar(s: Situacao, dia: List<Turno>, agora: Long): Volta? {
+        if (s.numero <= 1) return null
+        val ant = anteriorFechado(dia, s.numero) ?: return null
+        val atual = s.turno?.takeIf { it.numero == s.numero && it.estado in abertos }
+        val fechouEm = ant.fim ?: ant.ultimoEvento
+        val reaberto = if (atual == null || atual.estado == EstadoTurno.PRONTO) {
+            val gap = (agora - fechouEm).coerceAtLeast(0)
+            if (gap <= DESFAZER_NA_HORA_MS) ant.copy(estado = EstadoTurno.ATIVO, fim = null, ultimoEvento = fechouEm)
+            else ant.copy(estado = EstadoTurno.PAUSADO, fim = null, ultimoEvento = agora, paradoMs = ant.paradoMs + gap)
+        } else {
+            val n = mudar(atual, atual.estado, agora) // soma o tempo corrente de N
+            val entre = (atual.inicio - fechouEm).coerceAtLeast(0)
+            ant.copy(estado = n.estado, fim = null, ultimoEvento = agora,
+                trabalhoMs = ant.trabalhoMs + n.trabalhoMs, paradoMs = ant.paradoMs + n.paradoMs + entre)
+        }
+        return Volta(atual, reaberto)
+    }
+
+    /** Opções do diálogo "Zerar tempo". */
+    enum class OpcaoZerar { SO_ESTE, VOLTAR, DIA }
+
+    /**
+     * Quais opções mostrar: "só este turno" quando o turno atual já começou; "voltar" quando N > 1
+     * e existe o turno N−1 fechado hoje; "zerar o dia" quando há qualquer turno hoje.
+     */
+    fun opcoesZerar(s: Situacao, dia: List<Turno>): List<OpcaoZerar> = buildList {
+        if (s.emAndamento && s.turno != null) add(OpcaoZerar.SO_ESTE)
+        if (s.emAndamento || s.fase == Fase.PRONTO) if (voltar(s, dia, s.turno?.ultimoEvento ?: 0L) != null) add(OpcaoZerar.VOLTAR)
+        if (dia.isNotEmpty() && s.fase != Fase.CONCLUIDO) add(OpcaoZerar.DIA)
+    }
+
     /** Tempo de trabalho até [agora], recalculado pelos horários salvos. */
     fun trabalhoMs(t: Turno?, agora: Long): Long =
         if (t == null) 0 else t.trabalhoMs + if (t.estado == EstadoTurno.ATIVO) (agora - t.ultimoEvento).coerceAtLeast(0) else 0

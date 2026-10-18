@@ -45,6 +45,14 @@ class PainelSmokeTest {
         WorkManagerTestInitHelper.initializeTestWorkManager(ctx)
         val repo = LunaRepositories(ctx)
         val hoje = LocalDate.now().toString()
+        // clima/notícias de exemplo (sem rede no teste): mostra o card de clima de GV
+        val agoraMs = System.currentTimeMillis()
+        val ex = org.json.JSONObject().put("em", agoraMs)
+            .put("clima", org.json.JSONObject().put("t", 29.4).put("c", 1).put("min", 19.0).put("max", 33.0).put("ch", 20).put("h", org.json.JSONArray()))
+            .put("n", org.json.JSONArray()
+                .put(org.json.JSONObject().put("t", "Exemplo: obras na Av. Minas Gerais mudam o trânsito no Centro nesta semana").put("f", "DRD").put("l", "https://example.com/1").put("q", agoraMs - 3_600_000).put("b", false))
+                .put(org.json.JSONObject().put("t", "Exemplo: BR-381 tem pista liberada após manutenção perto de Valadares").put("f", "G1").put("l", "https://example.com/2").put("q", agoraMs - 7_200_000).put("b", true)))
+        ctx.getSharedPreferences("externo", 0).edit().putString("dados", ex.toString()).commit()
         if (semeado) return
         semeado = true
         runBlocking {
@@ -82,8 +90,9 @@ class PainelSmokeTest {
         repeat(20) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
         val raiz = act.window.decorView
         assertTrue(raiz.width > 0)
+        semEstouro(raiz)
         print(raiz, nome)
-        listOf(space.neural.luna.R.id.rolagem_principal, space.neural.luna.R.id.rolagem_direita, space.neural.luna.R.id.rolagem_col2, space.neural.luna.R.id.rolagem_col3)
+        listOf(space.neural.luna.R.id.rolagem_principal, space.neural.luna.R.id.rolagem_esquerda, space.neural.luna.R.id.rolagem_direita, space.neural.luna.R.id.rolagem_col1, space.neural.luna.R.id.rolagem_col2, space.neural.luna.R.id.rolagem_col3)
             .mapNotNull { act.findViewById<android.widget.ScrollView>(it) }
             .forEachIndexed { i, sv -> sv.getChildAt(0)?.let { if (it.height > 0) print(it, "$nome-rolagem$i") } }
         val chat = Robolectric.buildActivity(ChatActivity::class.java).setup().get()
@@ -99,6 +108,22 @@ class PainelSmokeTest {
                     achar(content)?.getChildAt(0)?.let { if (it.height > 0) print(it, "$nome-$n-rolagem") }
                 }
             }
+            // v0.1.5: Configurações (engrenagem), Luna ouvindo (conversa contínua), limites (toque no KPI)
+            val cfg = Robolectric.buildActivity(space.neural.luna.config.ConfiguracoesActivity::class.java).setup().get()
+            repeat(5) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
+            print(cfg.window.decorView, "$nome-configuracoes")
+            val lunaCard = MainActivity::class.java.getDeclaredField("luna").apply { isAccessible = true }.get(act) as LunaCard
+            lunaCard.ouvindo("quanto falta pra meta")
+            repeat(3) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)) }
+            print(lunaCard.view, "$nome-luna-ouvindo")
+            print(raiz, "$nome-home-ouvindo")
+            MainActivity::class.java.getDeclaredMethod("abrirLimites").apply { isAccessible = true }.invoke(act)
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            (org.robolectric.shadows.ShadowDialog.getLatestDialog())?.let { d -> print(d.window!!.decorView, "$nome-limites"); d.dismiss() }
+            space.neural.luna.chat.ChatActivity::class.java.getDeclaredMethod("mostrarOuvindo", Boolean::class.java, String::class.java)
+                .apply { isAccessible = true }.invoke(chat, true, "lança 30 na Uber")
+            repeat(3) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)) }
+            print(chat.window.decorView, "$nome-chat-ouvindo")
             val dia = Robolectric.buildActivity(LancamentosActivity::class.java, LancamentosActivity.dia(ctx, LocalDate.now().toString())).setup().get()
             repeat(10) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
             print(dia.window.decorView, "$nome-dia")
@@ -107,6 +132,7 @@ class PainelSmokeTest {
 
     private fun print(v: View, nome: String) {
         val dir = System.getProperty("luna.shots") ?: return
+        if (v.width <= 0 || v.height <= 0) return
         val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
         val cv = Canvas(b)
         if (v.background == null) FundoNeon().apply { setBounds(0, 0, v.width, v.height) }.draw(cv)
@@ -121,4 +147,20 @@ class PainelSmokeTest {
     @Test @Config(qualifiers = "w891dp-h411dp-land-xxhdpi") fun telefonePaisagem() = abrir("telefone-paisagem")
     @Test @Config(qualifiers = "w800dp-h1280dp-port-mdpi") fun tabletRetrato() = abrir("tablet-retrato")
     @Test @Config(qualifiers = "w1280dp-h720dp-land-mdpi") fun centralPaisagem() = abrir("central-paisagem")
+    /** Tablet do Marlon em paisagem (2000x1200 px, ~1333x800 dp) e 1280x800 dp. */
+    @Test @Config(qualifiers = "w1333dp-h800dp-land-hdpi") fun tablet2000x1200() = abrir("tablet-2000x1200")
+    @Test @Config(qualifiers = "w1280dp-h800dp-land-mdpi") fun tablet1280x800() = abrir("tablet-1280x800")
+
+    /** Nada pode passar da borda direita: todo filho visível cabe na largura da janela. */
+    private fun semEstouro(raiz: View) {
+        val w = raiz.width
+        fun ver(v: View) {
+            if (v.visibility != View.VISIBLE) return
+            val loc = IntArray(2); v.getLocationInWindow(loc)
+            val dentroDeRolagemH = generateSequence(v.parent) { it.parent }.any { it is android.widget.HorizontalScrollView }
+            if (!dentroDeRolagemH && v.width > 0) assertTrue("${v.javaClass.simpleName} ${v.contentDescription ?: ""} passa da borda: ${loc[0] + v.width} > $w", loc[0] + v.width <= w + 1)
+            if (v is android.view.ViewGroup && v !is android.widget.HorizontalScrollView) for (i in 0 until v.childCount) ver(v.getChildAt(i))
+        }
+        ver(raiz)
+    }
 }

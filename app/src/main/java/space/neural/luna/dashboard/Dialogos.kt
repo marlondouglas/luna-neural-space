@@ -231,6 +231,21 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
             .setPositiveButton(ok) { _, _ -> acao() }.setNegativeButton("Cancelar", null).show()
     }
 
+    /** Diálogo "Zerar tempo" (v0.1.5): uma opção por botão grande, com a explicação embaixo. */
+    fun opcoes(titulo: String, itens: List<Triple<String, String, () -> Unit>>): AlertDialog {
+        val c = corpo()
+        var d: AlertDialog? = null
+        itens.forEachIndexed { i, (rot, exp, acao) ->
+            c.addView(ui.botao(rot, if (i == 0) Ui.Estilo.CHEIO_VIOLETA else Ui.Estilo.CONTORNO, alto = true) { d?.dismiss(); acao() }
+                .apply { contentDescription = "$rot. $exp" }, ui.mp(if (i == 0) 0 else ui.dp(14)))
+            c.addView(ui.text(exp, 13f, Cores.BRANCO_70), ui.mp(ui.dp(4)))
+        }
+        d = AlertDialog.Builder(act).setTitle(titulo).setView(android.widget.ScrollView(act).apply { addView(c) })
+            .setNegativeButton("Cancelar", null).create()
+        d.show()
+        return d
+    }
+
     fun escolherDia(aoEscolher: (LocalDate) -> Unit) {
         val h = LocalDate.now()
         DatePickerDialog(act, { _, y, m, d -> aoEscolher(LocalDate.of(y, m + 1, d)) }, h.year, h.monthValue - 1, h.dayOfMonth)

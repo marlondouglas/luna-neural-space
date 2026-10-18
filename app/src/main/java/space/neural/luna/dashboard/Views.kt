@@ -118,7 +118,10 @@ object GanhosChart {
  * Shaders criados só quando o tamanho muda; a cada quadro só giram matrizes.
  * Com "remover animações" ligado, fica parada.
  */
-class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : View(ctx) {
+class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : View(ctx), space.neural.luna.avatar.LunaMotor.Alvo {
+    /** v0.1.5: a Luna de verdade (foto animada, respira, pisca e fala) dentro da esfera; o desenho antigo é só reserva. */
+    private val foto = space.neural.luna.avatar.LunaDesenho(ctx, 0.5f, 0.43f, 0.86f)
+    private var comFoto = false
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val rect = RectF()
@@ -167,12 +170,18 @@ class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : Vie
         }
     }
 
-    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; space.neural.luna.avatar.LunaMotor.remover(this); super.onDetachedFromWindow() }
 
     override fun onVisibilityAggregated(isVisible: Boolean) {
         super.onVisibilityAggregated(isVisible)
         if (isVisible) anim?.resume() else anim?.pause()
+        if (mostrarAvatar) {
+            if (isVisible) { space.neural.luna.avatar.LunaMotor.animar = Anima.ligadas(); space.neural.luna.avatar.LunaMotor.registrar(context, this) }
+            else space.neural.luna.avatar.LunaMotor.remover(this)
+        }
     }
+
+    override fun quadroNovo() { if (anim == null) invalidate() } // com o animador ligado, ele já redesenha a cada quadro
 
     /** Anel elíptico inclinado: [frente] desenha só a metade da frente da esfera. */
     private fun anelOrbital(c: Canvas, inclinacao: Float, escala: Float, cor: Int, frente: Boolean, giro: Float, larg: Float) {
@@ -240,10 +249,12 @@ class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : Vie
             p.color = Cores.alpha(if (i % 3 == 0) Cores.CIANO else Cores.BRANCO, 0.3f + 0.5f * ((sin(fase * 60 + i) + 1) / 2))
             c.drawCircle(cx + (rr * Math.cos(ang)).toFloat(), cy + (rr * Math.sin(ang) * 0.8).toFloat(), maxOf(0.8f, 0.9f * u), p)
         }
-        if (mostrarAvatar) desenharAvatar(c, cx, cy + 4 * u, u)
-        // Sombreamento esférico + brilho especular
-        p.shader = sombraEsf; c.drawCircle(cx, cy, R, p)
-        p.shader = especular; c.drawCircle(cx - R * 0.42f, cy - R * 0.5f, R * 0.42f, p)
+        comFoto = mostrarAvatar && foto.desenhar(c, cx, cy, R)
+        if (mostrarAvatar && !comFoto) desenharAvatar(c, cx, cy + 4 * u, u)
+        // Sombreamento esférico + brilho especular (mais suaves sobre a foto, para não escurecer o rosto)
+        p.shader = sombraEsf; p.alpha = if (comFoto) 140 else 255; c.drawCircle(cx, cy, R, p)
+        p.shader = especular; p.alpha = if (comFoto) 110 else 255; c.drawCircle(cx - R * 0.42f, cy - R * 0.5f, R * 0.42f, p)
+        p.alpha = 255
         c.restore()
         // Aro luminoso
         m.setRotate(-fase * 720f, cx, cy); aro?.setLocalMatrix(m)

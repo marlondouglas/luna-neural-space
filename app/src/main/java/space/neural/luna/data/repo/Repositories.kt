@@ -42,6 +42,12 @@ class LunaRepositories(context: Context) {
         db.gastoDao().soltos(data).forEach { salvarGasto(it.copy(turnoId = turnoId)) }
     }
 
+    /** Passa os ganhos e gastos do turno [de] para o turno [para] (null = soltos no dia). Nada é apagado. */
+    suspend fun religar(de: String, para: String?) {
+        db.ganhoDao().doTurno(de).forEach { salvarGanho(it.copy(turnoId = para)) }
+        db.gastoDao().doTurno(de).forEach { salvarGasto(it.copy(turnoId = para)) }
+    }
+
     suspend fun salvarTurno(turno: Turno) {
         db.turnoDao().upsert(turno.copy(updatedAt = now(), dirty = true))
         sync()

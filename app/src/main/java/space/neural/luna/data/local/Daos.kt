@@ -41,6 +41,9 @@ interface GanhoDao {
     @Query("SELECT * FROM ganhos WHERE deleted = 0 AND turnoId IS NULL AND data = :data")
     suspend fun soltos(data: String): List<Ganho>
 
+    @Query("SELECT * FROM ganhos WHERE deleted = 0 AND turnoId = :turnoId")
+    suspend fun doTurno(turnoId: String): List<Ganho>
+
     /** Só limpa a marca se o registro não mudou desde o envio. */
     @Query("UPDATE ganhos SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
     suspend fun markClean(id: String, updatedAt: Long)
@@ -62,6 +65,9 @@ interface GastoDao {
 
     @Query("SELECT * FROM gastos WHERE deleted = 0 AND turnoId IS NULL AND data = :data")
     suspend fun soltos(data: String): List<Gasto>
+
+    @Query("SELECT * FROM gastos WHERE deleted = 0 AND turnoId = :turnoId")
+    suspend fun doTurno(turnoId: String): List<Gasto>
 
     /** Só limpa a marca se o registro não mudou desde o envio. */
     @Query("UPDATE gastos SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")

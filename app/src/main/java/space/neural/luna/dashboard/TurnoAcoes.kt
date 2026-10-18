@@ -31,6 +31,23 @@ class TurnoAcoes(private val repo: LunaRepositories) {
     /** Zerar tempo: para o contador do turno atual e volta a 00:00:00. */
     suspend fun zerar(t: Turno) = repo.salvarTurno(MaquinaTurno.zerar(t, agora()))
 
+    /** Voltar para o turno anterior (desfaz o último "Fechar turno"). Retorna o turno reaberto, ou null. */
+    suspend fun voltar(s: MaquinaTurno.Situacao, turnos: List<Turno>): Turno? {
+        val dia = MaquinaTurno.doDia(turnos, s.turno?.data ?: LocalDate.now().toString())
+        val v = MaquinaTurno.voltar(s, dia, agora()) ?: return null
+        v.excluir?.let { repo.religar(it.id, v.reaberto.id); repo.excluirTurno(it.id) }
+        repo.salvarTurno(v.reaberto)
+        return v.reaberto
+    }
+
+    /** Zerar o dia: apaga todos os turnos de hoje (volta ao Turno 1/4). Ganhos e gastos do dia ficam, soltos no dia. */
+    suspend fun zerarDia(turnos: List<Turno>, s: MaquinaTurno.Situacao? = null): Int {
+        val hoje = LocalDate.now().toString()
+        val doDia = (MaquinaTurno.doDia(turnos, hoje) + listOfNotNull(s?.turno?.takeIf { it.data == hoje })).distinctBy { it.id }
+        for (t in doDia) { repo.religar(t.id, null); repo.excluirTurno(t.id) }
+        return doDia.size
+    }
+
     /** Concluir dia: fecha o que estiver aberto e manda todos os turnos do dia para o histórico. */
     suspend fun concluirDia(turnos: List<Turno>, s: MaquinaTurno.Situacao) {
         val hoje = LocalDate.now().toString()

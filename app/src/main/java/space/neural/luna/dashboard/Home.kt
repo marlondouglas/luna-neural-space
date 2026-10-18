@@ -126,7 +126,7 @@ class GalaxiaView(ctx: Context) : View(ctx) {
  * Card de entrada da Luna (abaixo de "Bom dia"): degradê colorido animado, orb, "Fale com a Luna…" e microfone.
  * Um toque = falar por voz aqui mesmo; dois toques (ou "Abrir conversa") = conversa completa.
  */
-class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val aoAbrir: () -> Unit, private val aoBotao: (LunaConversa.Botao) -> Unit) {
+class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val aoAbrir: () -> Unit, private val aoBotao: (LunaConversa.Botao) -> Unit, private val aoCamera: (View) -> Unit = {}) {
     private val fundo = FundoLuna(ui)
     val view: LinearLayout = ui.vbox(ui.dp(14)).apply {
         background = fundo
@@ -135,7 +135,8 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
         contentDescription = "Luna. Toque para falar por voz. Toque duas vezes para abrir a conversa"
         isClickable = true; isFocusable = true
     }
-    private val orb = LunaOrbView(ui.ctx)
+    /** v0.1.5: a Luna de verdade (foto animada: respira, pisca e fala com a boca sincronizada). */
+    private val orb = space.neural.luna.avatar.LunaAvatarView(ui.ctx)
     private val titulo = ui.text("Fale com a Luna…", 18f, Cores.BRANCO, bold = true).apply { setShadowLayer(10f, 0f, 0f, Cores.alpha(Cores.OBSIDIAN, 0.6f)) }
     private val sub = ui.text("Toque para falar · toque duas vezes para abrir a conversa", 13f, Cores.alpha(Cores.BRANCO, 0.85f))
     private val resposta = ui.text("", 15f, Cores.BRANCO).apply { visibility = View.GONE; maxLines = 4; ellipsize = android.text.TextUtils.TruncateAt.END }
@@ -144,13 +145,22 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
         background = ui.fundo(Cores.alpha(Cores.BRANCO, 0.18f), Cores.alpha(Cores.BRANCO, 0.5f), 28f)
     }
 
+    /** v0.1.5: foto de nota fiscal direto da tela inicial (câmera ou galeria). */
+    private val camera = ui.botaoIcone(R.drawable.ic_camera, "Foto de nota fiscal: câmera ou galeria", Cores.BRANCO) { aoCamera(it) }.apply {
+        background = ui.fundo(Cores.alpha(Cores.BRANCO, 0.12f), Cores.alpha(Cores.BRANCO, 0.4f), 26f)
+    }
+
     init {
-        val l = ui.hbox()
+        val l = ui.hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        orb.setOnClickListener { aoFalar() }
         l.addView(orb, LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)))
         val t = ui.vbox(); t.addView(titulo); t.addView(sub, ui.mp(ui.dp(2)))
+        ui.truncar(titulo, 1); ui.truncar(sub, 2)
         l.addView(t, ui.peso(1f, ui.dp(10)))
-        l.addView(mic, LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)))
-        l.addView(ui.botaoIcone(R.drawable.ic_chat, "Abrir conversa com a Luna", Cores.BRANCO) { aoAbrir() }, ui.wc(ui.dp(4)))
+        // botões sempre dentro do card (peso 0, tamanho fixo): o texto encolhe, nada passa da borda
+        l.addView(camera, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)).apply { leftMargin = ui.dp(6) })
+        l.addView(mic, LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)).apply { leftMargin = ui.dp(6) })
+        l.addView(ui.botaoIcone(R.drawable.ic_chat, "Abrir conversa com a Luna", Cores.BRANCO) { aoAbrir() }, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)).apply { leftMargin = ui.dp(2) })
         view.addView(l, ui.mp())
         view.addView(resposta, ui.mp(ui.dp(8)))
         view.addView(botoes, ui.mp(ui.dp(8)))
@@ -165,17 +175,27 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     }
 
     fun ouvindo(parcial: String?) {
-        orb.ativa = true; fundo.intenso = true
+        orb.ativa = true; orb.ouvindo = true; fundo.intenso = true
+        mic.imageTintList = android.content.res.ColorStateList.valueOf(Cores.CIANO)
+        mic.contentDescription = "Ouvindo. Toque para parar"
         titulo.text = "Ouvindo…"; sub.text = parcial?.takeIf { it.isNotBlank() } ?: "Pode falar, Marlon"
         botoes.visibility = View.GONE
     }
 
     fun pensando(texto: String) {
+        pararOuvir()
         orb.ativa = true; fundo.intenso = true
         titulo.text = "Luna está pensando…"; sub.text = "“$texto”"
     }
 
+    private fun pararOuvir() {
+        orb.ouvindo = false
+        mic.imageTintList = android.content.res.ColorStateList.valueOf(Cores.BRANCO)
+        mic.contentDescription = "Falar com a Luna"
+    }
+
     fun resposta(r: LunaConversa.Resposta) {
+        pararOuvir()
         orb.ativa = false; fundo.intenso = false
         titulo.text = "Luna"; sub.text = "Toque para falar de novo · duas vezes para a conversa"
         resposta.text = r.texto; resposta.visibility = View.VISIBLE
@@ -189,6 +209,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     }
 
     fun ocioso(msg: String? = null) {
+        pararOuvir()
         orb.ativa = false; fundo.intenso = false
         titulo.text = "Fale com a Luna…"
         sub.text = msg ?: "Toque para falar · toque duas vezes para abrir a conversa"

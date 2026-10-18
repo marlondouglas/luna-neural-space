@@ -6,7 +6,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
-import android.speech.tts.TextToSpeech
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -60,7 +59,6 @@ import space.neural.luna.dashboard.Ui
 import space.neural.luna.data.local.TipoMeta
 import space.neural.luna.data.repo.LunaRepositories
 import space.neural.luna.sync.SyncManager
-import space.neural.luna.teste.TesteFirebaseActivity
 import space.neural.luna.update.AtualizacaoActivity
 import java.util.Locale
 
@@ -79,24 +77,30 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
 
     private lateinit var cab: Cabecalho
     private lateinit var turnoCard: TurnoCard
-    private lateinit var resumo: ResumoCard
     private lateinit var metas: MetasCard
     private lateinit var kpis: KpiStrip
     private lateinit var seletor: SeletorPeriodo
     private lateinit var grafico: GraficoCard
     private lateinit var roscas: RoscasCard
-    private lateinit var ranking: RankingCard
     private lateinit var lancamentos: LancamentosCard
-    private lateinit var limites: LimitesCard
     private lateinit var luna: LunaCard
     private lateinit var relatorios: RelatoriosCard
     private lateinit var calendario: CalendarioCard
     private val conversa by lazy { LunaConversa.get(this) }
-    private var reconhecedor: android.speech.SpeechRecognizer? = null
-    private var ouvindo = false
+    /** v0.1.5: conversa por voz contínua (com barge-in) no card da Luna. */
+    private val voz by lazy {
+        space.neural.luna.voz.ConversaVoz(this, object : space.neural.luna.voz.ConversaVoz.Ouvinte {
+            override fun ouvindo(parcial: String?) = luna.ouvindo(parcial)
+            override fun ouviu(texto: String) = perguntarLuna(texto)
+            override fun encerrou(motivo: String?) { if (motivo != null) luna.ocioso(motivo) else luna.ocioso() }
+        })
+    }
     private val permMic = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) ouvir() else luna.ocioso("Sem permissão do microfone. Toque duas vezes para escrever na conversa.")
     }
+    private var fotoUri: android.net.Uri? = null
+    private val cameraNota = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok -> if (ok) fotoUri?.let { lerNota(it) } }
+    private val galeriaNota = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri -> uri?.let { lerNota(it) } }
     private val ditadoExterno = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!t.isNullOrBlank()) perguntarLuna(t) else luna.ocioso()
@@ -109,8 +113,6 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private var externo: Externo.Dados? = null
     private var carregandoExterno = false
     @Volatile private var online = false
-    private var tts: TextToSpeech? = null
-    private var ttsPronto = false
     private val rede by lazy { getSystemService(ConnectivityManager::class.java) }
     private val redeCb = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { mudouRede() }
@@ -134,7 +136,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
                 while (true) {
                     val agora = System.currentTimeMillis()
                     turnoCard.tick(agora)
-                    painel?.let { resumo.tick(it, agora) }
+                    painel?.let { turnoCard.tickResumo(it, agora) }
                     delay(1000 - agora % 1000)
                 }
             }
@@ -150,17 +152,18 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     }
 
     override fun onStop() {
+        if (voz.ativa || voz.escutando) voz.parar(null) // saiu da tela: o microfone não fica aberto
         runCatching { rede.unregisterNetworkCallback(redeCb) }
         super.onStop()
     }
 
-    override fun onDestroy() { reconhecedor?.destroy(); tts?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { voz.destruir(); if (isFinishing) space.neural.luna.avatar.LunaVoz.parar(); super.onDestroy() }
 
     // ---------------- Luna por voz na tela inicial ----------------
 
-    /** Um toque no card da Luna: ouve aqui mesmo (ou para, se já estiver ouvindo). */
+    /** Um toque no card da Luna: começa a conversa por voz (ou para, se já estiver ouvindo/conversando). */
     private fun falarComLuna() {
-        if (ouvindo) { reconhecedor?.stopListening(); return }
+        if (voz.ativa || voz.escutando) { voz.parar("Conversa encerrada. Toque para falar de novo."); space.neural.luna.avatar.LunaVoz.parar(); return }
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             permMic.launch(android.Manifest.permission.RECORD_AUDIO); return
         }
@@ -168,37 +171,16 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     }
 
     private fun ouvir() {
-        tts?.stop()
-        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Fale com a Luna")
-        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) {
+        space.neural.luna.avatar.LunaVoz.parar()
+        if (!voz.disponivel()) {
+            val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Fale com a Luna")
             runCatching { ditadoExterno.launch(intent) }.onFailure { luna.ocioso("Este aparelho não tem reconhecimento de voz. Toque duas vezes para escrever.") }
             return
         }
-        val r = reconhecedor ?: android.speech.SpeechRecognizer.createSpeechRecognizer(this).also { reconhecedor = it }
-        r.setRecognitionListener(object : android.speech.RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { luna.ouvindo(null) }
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() { ouvindo = false }
-            override fun onError(error: Int) { ouvindo = false; luna.ocioso("Não ouvi direito. Toque para tentar de novo.") }
-            override fun onPartialResults(b: Bundle?) {
-                b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { luna.ouvindo(it) }
-            }
-            override fun onResults(b: Bundle?) {
-                ouvindo = false
-                val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (t.isNullOrBlank()) luna.ocioso("Não ouvi direito. Toque para tentar de novo.") else perguntarLuna(t)
-            }
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        ouvindo = true
-        luna.ouvindo(null)
-        r.startListening(intent)
+        voz.iniciar()
     }
 
     /** Manda para a Luna (voz transcrita ou botão) e mostra/fala a resposta no próprio card. */
@@ -206,6 +188,36 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         luna.pensando(rotulo ?: texto)
         lifecycleScope.launch {
             val r = conversa.enviar(texto, voz = rotulo == null, rotulo = rotulo)
+            luna.resposta(r)
+            // na conversa contínua, ela volta a ouvir só depois de terminar de falar
+            if (voz.ativa) voz.falar(r.texto) else ler(r.texto)
+        }
+    }
+
+    // ---------------- Nota fiscal pela tela inicial (v0.1.5) ----------------
+    private fun escolherFotoNota(ancora: View) {
+        val m = PopupMenu(this, ancora)
+        m.menu.add(0, 1, 0, "Tirar foto da nota")
+        m.menu.add(0, 2, 1, "Escolher da galeria")
+        m.setOnMenuItemClickListener {
+            if (it.itemId == 1) {
+                val dir = java.io.File(cacheDir, "fotos").apply { mkdirs() }
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", java.io.File(dir, "nota.jpg"))
+                fotoUri = uri
+                runCatching { cameraNota.launch(uri) }.onFailure { Toast.makeText(this, "Câmera indisponível. Use a galeria.", Toast.LENGTH_SHORT).show() }
+            } else runCatching { galeriaNota.launch("image/*") }
+            true
+        }
+        m.show()
+    }
+
+    /** Mesmo fluxo da conversa: /receipt lê loja e total, a Luna pergunta o limite com botões, "Sim" confirma e ela fala quanto sobra. */
+    private fun lerNota(uri: android.net.Uri) {
+        if (voz.ativa) voz.parar(null)
+        luna.pensando("📷 Lendo a nota fiscal…")
+        lifecycleScope.launch {
+            val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { space.neural.luna.chat.Foto.reduzir(this@MainActivity, uri) }.getOrNull() }
+            val r = if (jpeg == null) space.neural.luna.chat.LunaConversa.Resposta("Não consegui abrir essa foto.") else conversa.lerNota(jpeg)
             luna.resposta(r)
             ler(r.texto)
         }
@@ -243,16 +255,13 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
         cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)
         turnoCard = TurnoCard(ui, largo = false, a = this, orbDp = when { telefonePaisagem -> 150; cls == 3 -> 190; else -> 210 })
-        resumo = ResumoCard(ui, this)
         metas = MetasCard(ui, this)
-        kpis = KpiStrip(ui, colunas = if (telefonePaisagem || (cls == 1 && w < 600)) 2 else 4)
+        kpis = KpiStrip(ui, colunas = if (telefonePaisagem || (cls == 1 && w < 600)) 2 else 4).apply { aoTocarLimites = { abrirLimites() } }
         seletor = SeletorPeriodo(ui) { escolherPeriodo(it) }
-        grafico = GraficoCard(ui)
+        grafico = GraficoCard(ui, alturaDp = when { cls == 3 -> 300; cls == 2 && !telefonePaisagem -> 260; else -> 200 })
         roscas = RoscasCard(ui)
-        ranking = RankingCard(ui, this)
         lancamentos = LancamentosCard(ui, this)
-        limites = LimitesCard(ui, this)
-        luna = LunaCard(ui, { falarComLuna() }, { conversar() }, { b -> perguntarLuna(b.comando, b.rotulo) })
+        luna = LunaCard(ui, { falarComLuna() }, { conversar() }, { b -> perguntarLuna(b.comando, b.rotulo) }, { escolherFotoNota(it) })
         relatorios = RelatoriosCard(ui) { startActivity(Intent(this, space.neural.luna.dashboard.RelatorioActivity::class.java)) }
         calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
         noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
@@ -260,7 +269,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
 
         val raiz = ui.vbox()
         raiz.addView(cab.view, ui.mp())
-        if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(4)))
+        if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(8)))
 
         fun coluna(id: Int, vararg cards: View): ScrollView {
             val col = ui.vbox()
@@ -274,42 +283,45 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
             cards.forEachIndexed { i, c -> addView(c, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else gap }) }
         }
 
+        // v0.1.5: sem "Resumo do dia" (ações no card do turno), sem "Ranking", limites resumidos no KPI;
+        // o clima de GV vira card de destaque e o gráfico de líquido ganha o espaço liberado.
         val ordem: List<View>
         when {
             cls == 1 -> {
-                ordem = listOf(kpis.view, turnoCard.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, calendario.view, metas.view, limites.view, resumo.view, lancamentos.view, noticias.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
                 raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             telefonePaisagem -> {
-                ordem = listOf(turnoCard.view, calendario.view, resumo.view, metas.view, limites.view, luna.view, kpis.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view)
+                val esq = listOf(turnoCard.view, metas.view, calendario.view)
+                val dir = listOf(luna.view, kpis.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
+                ordem = esq + dir
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_esquerda, turnoCard.view, calendario.view, resumo.view, metas.view, limites.view), LinearLayout.LayoutParams(0, -1, 0.4f))
-                l.addView(coluna(R.id.rolagem_direita, luna.view, kpis.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_esquerda, *esq.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.4f))
+                l.addView(coluna(R.id.rolagem_direita, *dir.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
                 raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             cls == 2 -> {
-                ordem = listOf(kpis.view, turnoCard.view, metas.view, limites.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, calendario.view, resumo.view, lancamentos.view, noticias.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
                 val col = ui.vbox()
                 col.addView(kpis.view, ui.mp(ui.dp(4)))
-                val metasLimites = ui.vbox().apply { addView(metas.view, ui.mp()); addView(limites.view, ui.mp(gap)) }
-                col.addView(linha(turnoCard.view, metasLimites), ui.mp(gap))
+                val lado = ui.vbox().apply { addView(noticias.view, ui.mp()); addView(metas.view, ui.mp(gap)) }
+                col.addView(linha(turnoCard.view, lado), ui.mp(gap))
                 col.addView(relatorios.view, ui.mp(gap))
                 col.addView(seletor.view, ui.mp(gap))
                 col.addView(grafico.view, ui.mp(gap))
-                col.addView(linha(ranking.view, roscas.view), ui.mp(gap))
-                col.addView(linha(calendario.view, resumo.view), ui.mp(gap))
-                col.addView(linha(lancamentos.view, noticias.view), ui.mp(gap))
+                col.addView(linha(roscas.view, calendario.view), ui.mp(gap))
+                col.addView(lancamentos.view, ui.mp(gap))
                 col.addView(dica.view, ui.mp(gap))
                 col.setPadding(0, 0, 0, gap)
                 raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(col); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             else -> {
-                ordem = listOf(kpis.view, turnoCard.view, calendario.view, metas.view, limites.view, resumo.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, metas.view, calendario.view, relatorios.view, seletor.view, grafico.view, lancamentos.view, noticias.view, roscas.view, dica.view)
                 raiz.addView(kpis.view, ui.mp(gap / 2))
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, calendario.view, metas.view, limites.view, resumo.view), LinearLayout.LayoutParams(0, -1, 1f))
-                l.addView(coluna(R.id.rolagem_col2, relatorios.view, seletor.view, grafico.view, ranking.view), LinearLayout.LayoutParams(0, -1, 1.15f).apply { leftMargin = gap })
-                l.addView(coluna(R.id.rolagem_col3, roscas.view, lancamentos.view, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, metas.view, calendario.view), LinearLayout.LayoutParams(0, -1, 1f))
+                l.addView(coluna(R.id.rolagem_col2, relatorios.view, seletor.view, grafico.view, lancamentos.view), LinearLayout.LayoutParams(0, -1, 1.15f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_col3, noticias.view, roscas.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
                 raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
             }
         }
@@ -332,12 +344,12 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val agora = System.currentTimeMillis()
         cab.bind(p, online, BuildConfig.FIREBASE_CONFIGURED)
         turnoCard.bind(p.situacao)
-        resumo.bind(p, agora, sugerirParar(p, agora))
+        turnoCard.bindResumo(p, agora, sugerirParar(p, agora))
         metas.bind(p, alertaMotivacional(p))
         seletor.bind(periodo)
         val e = p.estatisticas(periodo, agora)
-        kpis.bind(e); grafico.bind(e); roscas.bind(e); ranking.bind(e); lancamentos.bind(e)
-        limites.bind(p); relatorios.bind(p); calendario.bind(p)
+        kpis.bind(e); kpis.bindLimites(p.envelopes()); grafico.bind(e); roscas.bind(e); lancamentos.bind(e)
+        relatorios.bind(p); calendario.bind(p)
         noticias.bind(externo, online, carregandoExterno)
         dica.bind(p.hoje)
     }
@@ -408,11 +420,59 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         (s.anterior ?: s.turno)?.let { startActivity(LancamentosActivity.correcao(this, it.id)) }
     }
     override fun zerar() {
-        val t = painel?.turno ?: return
-        dlg.confirmar("Zerar tempo", "O contador do turno ${t.numero} para e volta a 00:00:00. Os ganhos lançados continuam.", "Zerar tempo") {
-            lifecycleScope.launch { acoes.zerar(t) }
+        val p = painel ?: return
+        val s = p.situacao
+        val hoje = java.time.LocalDate.now().toString()
+        val dia = MaquinaTurno.doDia(p.turnosTodos, hoje)
+        val n = s.numero
+        val itens = MaquinaTurno.opcoesZerar(s, dia).map { op ->
+            when (op) {
+                MaquinaTurno.OpcaoZerar.SO_ESTE -> Triple("Zerar só este turno",
+                    "O turno $n continua, com o contador em 00:00:00. Os ganhos lançados continuam.") {
+                    s.turno?.let { t -> lifecycleScope.launch { acoes.zerar(t) } }; Unit
+                }
+                MaquinaTurno.OpcaoZerar.VOLTAR -> Triple("Voltar para o turno anterior",
+                    "Desfaz o “Fechar turno”: apaga o turno $n e reabre o turno ${n - 1} com o tempo que ele já tinha.") {
+                    lifecycleScope.launch {
+                        val r = acoes.voltar(s, p.turnosTodos)
+                        val msg = when {
+                            r == null -> "Não deu para voltar: não achei o turno anterior."
+                            r.estado == space.neural.luna.data.local.EstadoTurno.PAUSADO -> "Turno ${r.numero} reaberto (pausado). Toque em Retomar para continuar."
+                            else -> "Turno ${r.numero} reaberto e contando."
+                        }
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    }; Unit
+                }
+                MaquinaTurno.OpcaoZerar.DIA -> Triple("Zerar o dia",
+                    "Apaga todos os turnos de hoje e volta para o Turno 1/${MaquinaTurno.TOTAL}. Ganhos e gastos ficam.") {
+                    val qtd = dia.size
+                    dlg.confirmar("Zerar o dia?",
+                        "Vou apagar ${if (qtd == 1) "o turno de hoje" else "os $qtd turnos de hoje"} e o dia volta para o Turno 1/${MaquinaTurno.TOTAL}, sem iniciar.\n\n" +
+                            "Os ganhos e gastos de hoje NÃO são apagados: continuam no resumo do dia.", "Sim, zerar o dia") {
+                        lifecycleScope.launch {
+                            acoes.zerarDia(p.turnosTodos, s)
+                            Toast.makeText(this@MainActivity, "Dia zerado. Turno 1 pronto para iniciar.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
         }
+        if (itens.isEmpty()) { Toast.makeText(this, "Nada para zerar: o turno ainda não começou.", Toast.LENGTH_SHORT).show(); return }
+        dlg.opcoes("Zerar tempo — turno $n", itens)
     }
+    /** Toque no KPI "Limites": todos os limites do mês (barras, lançar gasto em cada um, Planejamento). */
+    private fun abrirLimites() {
+        val p = painel ?: return
+        val card = LimitesCard(ui, this).apply { bind(p) }
+        val d = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(ScrollView(this).apply { addView(card.view); setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)) })
+            .setNegativeButton("Fechar", null).create()
+        limitesDialogo = d
+        d.setOnDismissListener { if (limitesDialogo === d) limitesDialogo = null }
+        d.show()
+    }
+    private var limitesDialogo: androidx.appcompat.app.AlertDialog? = null
+
     override fun diaEsquecido() = dlg.escolherDia { startActivity(LancamentosActivity.dia(this, it.toString())) }
     override fun detalheDia() = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString()))
     override fun abrirDia(data: String) = startActivity(LancamentosActivity.dia(this, data))
@@ -423,8 +483,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     override fun detalheApp(app: String) = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString(), app))
     override fun lancarGanho(app: String?) = dlg.ganho(java.time.LocalDate.now().toString(), painel?.turno?.id, app)
     override fun lancarGasto(categoria: String?) = dlg.gasto(java.time.LocalDate.now().toString(), painel?.turno?.id, categoria)
-    override fun gastoEnvelope(e: space.neural.luna.dashboard.Plano.Envelope) = dlg.gastoEnvelope(e.limite, e.restanteCentavos)
-    override fun planejamento() = startActivity(Intent(this, space.neural.luna.config.PlanejamentoActivity::class.java))
+    override fun gastoEnvelope(e: space.neural.luna.dashboard.Plano.Envelope) { limitesDialogo?.dismiss(); dlg.gastoEnvelope(e.limite, e.restanteCentavos) }
+    override fun planejamento() { limitesDialogo?.dismiss(); startActivity(Intent(this, space.neural.luna.config.PlanejamentoActivity::class.java)) }
     override fun dispensarAlerta(chave: String) { prefs.edit().putInt(chave, 2).apply(); desenhar() }
     override fun pararAgoraNao() { prefs.edit().putLong("parar_agora_nao_ate", System.currentTimeMillis() + 60 * 60_000L).apply(); desenhar() }
 
@@ -452,15 +512,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         AlertDialog.Builder(this).setTitle("Previsão por hora — Valadares").setMessage(txt).setPositiveButton("Fechar", null).show()
     }
 
-    override fun ler(texto: String) {
-        val limpo = texto.replace(Regex("[\\p{So}\\p{Cn}]"), "")
-        if (tts == null) {
-            tts = TextToSpeech(this) { st ->
-                ttsPronto = st == TextToSpeech.SUCCESS
-                if (ttsPronto) { tts?.language = Locale.forLanguageTag("pt-BR"); tts?.speak(limpo, TextToSpeech.QUEUE_FLUSH, null, "luna") }
-            }
-        } else if (ttsPronto) tts?.speak(limpo, TextToSpeech.QUEUE_FLUSH, null, "luna")
-    }
+    /** Fala da Luna (respostas e alertas): voz Kore do servidor com a boca sincronizada; reserva: voz do Android. */
+    override fun ler(texto: String) = space.neural.luna.avatar.LunaVoz.falar(this, texto)
 
     override fun compartilhar(texto: String) {
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, texto), "Compartilhar"))
@@ -473,31 +526,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         Toast.makeText(this, if (online) "Sincronizando…" else "Sem internet: sincroniza quando a conexão voltar.", Toast.LENGTH_SHORT).show()
     }
 
-    override fun menu(ancora: View) {
-        val m = PopupMenu(this, ancora)
-        m.menu.add(0, 1, 0, "Conversar com a Luna")
-        m.menu.add(0, 2, 1, "Histórico")
-        m.menu.add(0, 3, 2, "Lançar dia esquecido")
-        m.menu.add(0, 4, 3, "Anotações")
-        m.menu.add(0, 8, 4, "Configurações / Planejamento")
-        m.menu.add(0, 5, 4, "Luna fala os alertas").apply { isCheckable = true; isChecked = prefs.getBoolean("voz_alertas", true) }
-        m.menu.add(0, 6, 5, getString(R.string.teste_firebase))
-        m.menu.add(0, 7, 6, getString(R.string.atualizacao))
-        m.setOnMenuItemClickListener {
-            when (it.itemId) {
-                1 -> conversar()
-                2 -> startActivity(Intent(this, HistoricoActivity::class.java))
-                3 -> diaEsquecido()
-                4 -> startActivity(Intent(this, AnotacoesActivity::class.java))
-                5 -> prefs.edit().putBoolean("voz_alertas", !prefs.getBoolean("voz_alertas", true)).apply()
-                6 -> startActivity(Intent(this, TesteFirebaseActivity::class.java))
-                7 -> startActivity(Intent(this, AtualizacaoActivity::class.java))
-                8 -> planejamento()
-            }
-            true
-        }
-        m.show()
-    }
+    /** v0.1.5: a engrenagem abre a tela de Configurações (substitui o menu de três pontinhos). */
+    override fun menu(ancora: View) = startActivity(Intent(this, space.neural.luna.config.ConfiguracoesActivity::class.java))
 
     companion object {
         /** Sugestão de parar abaixo de R$ 20/h de líquido (depois de 2 h de trabalho). */

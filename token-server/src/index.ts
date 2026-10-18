@@ -12,6 +12,12 @@ import { AccessToken } from "livekit-server-sdk";
  *   POST /chat  {"messages":[{"role":"user"|"assistant","content":"..."}], "context":{...}}
  *   200 -> {"reply": "...", "provider": "gemini" | "workers-ai"}
  *   Usa o Gemini (segredo GEMINI_API_KEY); se falhar, cai no Workers AI (binding AI).
+ *
+ * Voz da Luna:
+ *   POST /tts  {"text":"...", "cache"?: true}
+ *   200 -> áudio (audio/wav PCM 16 bits 24 kHz mono do Gemini TTS, voz Kore; ou audio/mpeg do Workers AI)
+ *   headers: x-luna-voice (kore | workers-ai), x-luna-cache (hit | miss)
+ *   O tempo da boca (lip sync) é calculado no aparelho a partir do texto + áudio.
  */
 export interface Env {
   LIVEKIT_URL: string;
@@ -24,6 +30,9 @@ export interface Env {
   CHAT_MODEL?: string; // modelo do Workers AI
   GEMINI_API_KEY?: string; // segredo do Worker (wrangler secret put GEMINI_API_KEY)
   GEMINI_MODEL?: string;
+  TTS_MODEL?: string; // modelo do Gemini TTS
+  TTS_VOICE?: string; // voz do Gemini TTS (Kore)
+  TTS_WORKERS_AI?: string; // "1" liga melotts (não fala pt) como reserva
 }
 
 const CHAT_MAX_MESSAGES = 12;
@@ -84,10 +93,11 @@ async function geminiReply(env: Env, system: string, messages: ChatMsg[]): Promi
   return typeof r2 === "string" ? r2 : null;
 }
 
-const SYSTEM_PROMPT = `Você é a Luna, copiloto simpática e direta de um motorista de aplicativo (99, Uber, InDrive, Gogeta e corridas particulares) em Governador Valadares (MG). O motorista se chama Marlon e dirige um carro elétrico Geely (o gasto é com recarga elétrica, não combustível).
+const SYSTEM_PROMPT = `Você é a Luna, copiloto de um motorista de aplicativo (99, Uber, InDrive, Gogeta e corridas particulares) em Governador Valadares (MG). O motorista se chama Marlon e dirige um carro elétrico Geely (o gasto é com recarga elétrica, não combustível).
+Personalidade: uma mulher brasileira madura (uns 30 anos), calorosa, confiante e prática, com bom humor leve: brinca de vez em quando, sem exagero e sem piadas forçadas. Trata o Marlon como um amigo ("bora", "nada mal, hein?").
 Regras:
 - Você é a Luna, assistente do app LUNA Neural Space. Nunca diga que é o Gemini, um modelo do Google ou outra IA.
-- Responda sempre em português do Brasil, com frases curtas (no máximo 3 ou 4), porque ele pode estar dirigindo.
+- Responda sempre em português do Brasil, em 1 a 3 frases curtas que soem bem faladas em voz alta (a resposta é lida pela sua voz), porque ele pode estar dirigindo. Sem listas, emojis ou markdown.
 - Use os dados do CONTEXTO abaixo (ganhos do dia por app, gastos, metas e percentuais, turno N/4 e tempo, envelopes de gastos com limite) quando forem relevantes. Valores em reais no formato R$ 0,00.
 - Não invente números que não estejam no contexto. Se não souber, diga que não sabe.
 - Seja encorajadora, prática e segura: nunca incentive a usar o celular dirigindo nem a correr riscos.
@@ -220,6 +230,179 @@ async function handleReceipt(request: Request, env: Env): Promise<Response> {
   });
 }
 
+
+// ---------------- /tts: voz da Luna (Gemini TTS, voz Kore) ----------------
+const TTS_MAX_CHARS = 600;
+const TTS_MAX_BODY = 8 * 1024;
+const TTS_TIMEOUT_MS = 30_000;
+const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+const TTS_FALLBACK_MODEL = "gemini-2.5-pro-preview-tts";
+const TTS_STYLE =
+  "Leia em português do Brasil, como uma mulher brasileira de uns trinta anos conversando com um amigo motorista: voz calorosa e confiante, tom brincalhão e leve, sorriso na voz, pequenas pausas naturais, ritmo de conversa real, sem soar como locutora";
+const TTS_RATE_PER_MIN = 30; // por IP, por instância do Worker (proteção simples contra abuso)
+const ttsHits = new Map<string, { t: number; n: number }>();
+
+function ttsRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const e = ttsHits.get(ip);
+  if (!e || now - e.t > 60_000) {
+    ttsHits.set(ip, { t: now, n: 1 });
+    if (ttsHits.size > 5000) ttsHits.clear();
+    return false;
+  }
+  e.n++;
+  return e.n > TTS_RATE_PER_MIN;
+}
+
+/** Texto limpo para a fala: sem emojis/markdown, espaços normalizados. */
+export function ttsClean(text: string): string {
+  return text
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, "")
+    .replace(/[*_#`>~|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, TTS_MAX_CHARS);
+}
+
+/** Cabeçalho WAV (PCM 16 bits mono) na frente do PCM cru do Gemini. */
+export function wavFromPcm(pcm: Uint8Array, rate = 24000): Uint8Array {
+  const out = new Uint8Array(44 + pcm.length);
+  const v = new DataView(out.buffer);
+  const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) out[o + i] = s.charCodeAt(i); };
+  w(0, "RIFF"); v.setUint32(4, 36 + pcm.length, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, pcm.length, true);
+  out.set(pcm, 44);
+  return out;
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function geminiTts(env: Env, model: string, text: string): Promise<Uint8Array | number> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY ?? "" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${TTS_STYLE}: ${text}` }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: env.TTS_VOICE || "Kore" } } },
+          },
+        }),
+        signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) {
+      console.error("Gemini TTS HTTP", model, res.status);
+      return res.status;
+    }
+    const data: any = await res.json();
+    const part = (data?.candidates?.[0]?.content?.parts ?? []).find((p: any) => p?.inlineData?.data);
+    if (!part) return 502;
+    const mime = String(part.inlineData.mimeType ?? "");
+    const rate = Number(/rate=(\d+)/.exec(mime)?.[1] ?? "24000") || 24000;
+    return wavFromPcm(b64ToBytes(part.inlineData.data), rate);
+  } catch (e) {
+    console.error("Gemini TTS:", model, (e as Error)?.name ?? "erro");
+    return 0;
+  }
+}
+
+async function workersAiTts(env: Env, text: string): Promise<Uint8Array | null> {
+  if (!env.AI) return null;
+  try {
+    const out: any = await env.AI.run("@cf/myshell-ai/melotts" as any, { prompt: text, lang: "pt" } as any);
+    const b64 = typeof out?.audio === "string" ? out.audio : typeof out === "string" ? out : "";
+    if (b64) return b64ToBytes(b64);
+    if (out instanceof ReadableStream) return new Uint8Array(await new Response(out).arrayBuffer());
+    return null;
+  } catch (e) {
+    console.error("Workers AI TTS:", (e as Error)?.message ?? e);
+    return null;
+  }
+}
+
+async function sha256Hex(s: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function handleTts(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  if (!env.GEMINI_API_KEY && !env.AI) return json({ error: "Voz indisponível" }, 503);
+  const len = Number(request.headers.get("content-length") ?? "0");
+  if (len > TTS_MAX_BODY) return json({ error: "Texto grande demais" }, 413);
+  const raw = await request.text();
+  if (raw.length > TTS_MAX_BODY) return json({ error: "Texto grande demais" }, 413);
+  let body: any;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return json({ error: "JSON inválido" }, 400);
+  }
+  const text = typeof body?.text === "string" ? ttsClean(body.text) : "";
+  if (!text) return json({ error: "Envie o texto" }, 400);
+
+  const model = env.TTS_MODEL || DEFAULT_TTS_MODEL;
+  const key = await sha256Hex(`${model}|${env.TTS_VOICE || "Kore"}|${TTS_STYLE}|${text}`);
+  const cacheReq = new Request(`https://luna-tts.cache/${key}`);
+  const cache = (globalThis as any).caches?.default as Cache | undefined;
+  if (cache) {
+    const hit = await cache.match(cacheReq);
+    if (hit) {
+      const h = new Headers(hit.headers);
+      h.set("x-luna-cache", "hit");
+      return new Response(hit.body, { status: 200, headers: h });
+    }
+  }
+  const ip = request.headers.get("cf-connecting-ip") ?? "local";
+  if (ttsRateLimited(ip)) return json({ error: "Muitas falas seguidas; tente em instantes" }, 429);
+
+  let audio: Uint8Array | null = null;
+  let mime = "audio/wav";
+  let voice = "kore";
+  if (env.GEMINI_API_KEY) {
+    let r = await geminiTts(env, model, text);
+    if (r === 503 || r === 0 || r === 500) r = await geminiTts(env, model, text); // instabilidade: tenta de novo uma vez
+    if (r === 429 || r === 503 || r === 0 || r === 500) r = await geminiTts(env, TTS_FALLBACK_MODEL, text);
+    if (r instanceof Uint8Array) audio = r;
+  }
+  // Workers AI (melotts) não fala português (erro 8007 'Unsupported language pt'); só serve para outros idiomas.
+  // Sem Gemini (limite gratuito por minuto = HTTP 429), responde 503 + Retry-After e o app usa a voz do Android.
+  if (!audio && !/[ãõçáéíóúâêô]/i.test(text) && env.TTS_WORKERS_AI === "1") {
+    audio = await workersAiTts(env, text);
+    mime = "audio/mpeg";
+    voice = "workers-ai";
+  }
+  if (!audio || audio.length < 100) {
+    return new Response(JSON.stringify({ error: "A Luna não conseguiu falar agora" }), {
+      status: 503,
+      headers: { "content-type": "application/json; charset=utf-8", "retry-after": "20", "access-control-allow-origin": "*" },
+    });
+  }
+
+  const ttl = body?.cache === true ? 30 * 86400 : 7 * 86400;
+  const headers = {
+    "content-type": mime,
+    "cache-control": `public, max-age=${ttl}`,
+    "x-luna-voice": voice,
+    "x-luna-cache": "miss",
+  };
+  if (cache && voice === "kore") {
+    const put = cache.put(cacheReq, new Response(audio, { headers }));
+    if (ctx) ctx.waitUntil(put); else await put;
+  }
+  return new Response(audio, { status: 200, headers: { ...headers, "cache-control": "no-store" } });
+}
+
 const ROOM_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IDENTITY_RE = /^[A-Za-z0-9_.@-]{1,128}$/;
 
@@ -239,8 +422,17 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/tts") {
+      if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+      if (env.APP_SHARED_KEY) {
+        const sent = request.headers.get("x-app-key") ?? "";
+        if (!safeEqual(sent, env.APP_SHARED_KEY)) return json({ error: "Não autorizado" }, 401);
+      }
+      return handleTts(request, env, ctx);
+    }
 
     if (url.pathname === "/receipt") {
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);
