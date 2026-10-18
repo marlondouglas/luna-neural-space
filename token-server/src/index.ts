@@ -1,4 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
+import { LicenseEnv, handleAdmin, handleCoraWebhook, handleLicenseCheck, handleLicenseClaim, requireLicense } from "./licenseRoutes";
 
 /**
  * Servidor de tokens LiveKit do app Rota GV.
@@ -18,8 +19,13 @@ import { AccessToken } from "livekit-server-sdk";
  *   200 -> áudio (audio/wav PCM 16 bits 24 kHz mono do Gemini TTS, voz Kore; ou audio/mpeg do Workers AI)
  *   headers: x-luna-voice (kore | workers-ai), x-luna-cache (hit | miss)
  *   O tempo da boca (lip sync) é calculado no aparelho a partir do texto + áudio.
+ *
+ * Licença (teste grátis de 7 dias + assinatura), ver licenseRoutes.ts:
+ *   POST /license/check, POST /license/claim, /admin/* (tools/unlock.sh), POST /webhook/cora (gancho).
+ *   Com LICENSE_ENFORCE="1", /chat, /tts e /receipt exigem conta com teste/assinatura em dia
+ *   (headers Authorization: Bearer <ID token Firebase>, X-Device-Id, X-App-Version).
  */
-export interface Env {
+export interface Env extends LicenseEnv {
   LIVEKIT_URL: string;
   LIVEKIT_API_KEY: string;
   LIVEKIT_API_SECRET: string; // segredo do Worker
@@ -425,12 +431,25 @@ export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/license/check") {
+      if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+      return handleLicenseCheck(request, env);
+    }
+    if (url.pathname === "/license/claim") {
+      if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+      return handleLicenseClaim(request, env);
+    }
+    if (url.pathname.startsWith("/admin/")) return handleAdmin(request, env, url.pathname);
+    if (url.pathname === "/webhook/cora") return handleCoraWebhook(request, env);
+
     if (url.pathname === "/tts") {
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);
       if (env.APP_SHARED_KEY) {
         const sent = request.headers.get("x-app-key") ?? "";
         if (!safeEqual(sent, env.APP_SHARED_KEY)) return json({ error: "Não autorizado" }, 401);
       }
+      const bloqueio = await requireLicense(request, env);
+      if (bloqueio) return bloqueio;
       return handleTts(request, env, ctx);
     }
 
@@ -440,6 +459,8 @@ export default {
         const sent = request.headers.get("x-app-key") ?? "";
         if (!safeEqual(sent, env.APP_SHARED_KEY)) return json({ error: "Não autorizado" }, 401);
       }
+      const bloqueio = await requireLicense(request, env);
+      if (bloqueio) return bloqueio;
       return handleReceipt(request, env);
     }
 
@@ -449,6 +470,8 @@ export default {
         const sent = request.headers.get("x-app-key") ?? "";
         if (!safeEqual(sent, env.APP_SHARED_KEY)) return json({ error: "Não autorizado" }, 401);
       }
+      const bloqueio = await requireLicense(request, env);
+      if (bloqueio) return bloqueio;
       return handleChat(request, env);
     }
 

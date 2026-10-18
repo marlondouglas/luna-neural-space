@@ -19,6 +19,26 @@ CHAT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 TTS_MODEL = "gemini-2.5-flash-preview-tts"
 TTS_VOICE = "Kore"
 
+# Licença (teste grátis + assinatura). Ver src/license.ts e src/licenseRoutes.ts.
+FIREBASE_PROJECT_ID = "gen-lang-client-0729741193"
+TRIAL_DAYS = "7"
+# Quanto tempo o app funciona sem internet com a última licença assinada.
+GRACE_HOURS = "48"
+# Uma conta em no máximo N aparelhos (troca de celular: tools/unlock.sh reset-devices).
+MAX_DEVICES = "3"
+# Versões abaixo desta são bloqueadas ("Atualize o app"). 106 = v0.1.6 (primeira com a trava).
+MIN_VERSION_CODE = "106"
+DOWNLOAD_URL = "https://marlondouglas.github.io/luna-neural-space/download.html"
+# "1" = /chat, /tts e /receipt exigem conta com teste/assinatura em dia.
+LICENSE_ENFORCE = "1"
+
+# KV das licenças. NÃO criado ainda (produção). Para criar:
+#   npx wrangler kv namespace create LICENSES
+# e troque o id abaixo pelo que o comando mostrar.
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "COLOQUE_AQUI_O_ID_DO_KV_LICENSES"
+
 # Workers AI (plano gratuito), usado em POST /chat.
 [ai]
 binding = "AI"
@@ -27,3 +47,5 @@ binding = "AI"
 #   npx wrangler secret put LIVEKIT_API_SECRET
 #   npx wrangler secret put APP_SHARED_KEY   (opcional)
 #   npx wrangler secret put GEMINI_API_KEY   (chave do Gemini para /chat)
+#   npx wrangler secret put LICENSE_SIGNING_KEY  (JWK privada ECDSA P-256; arquivo fora do repo)
+#   npx wrangler secret put ADMIN_SECRET         (token do tools/unlock.sh; arquivo fora do repo)

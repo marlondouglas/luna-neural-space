@@ -5,7 +5,9 @@
   "description": "Servidor de tokens LiveKit do app Rota GV (Cloudflare Worker)",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "tsc -p tsconfig.test.json && echo '{\"type\":\"module\"}' > build-test/package.json && node --test test/",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "livekit-server-sdk": "^2.19.1"

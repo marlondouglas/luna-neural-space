@@ -67,3 +67,35 @@ POST /chat
 - Respeita `APP_SHARED_KEY`/`X-App-Key`, igual ao `/token`.
 - A chave do Gemini é segredo do Worker (nunca no repositório):
   `printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY`
+
+## Licença: conta + teste grátis de 7 dias + assinatura (v0.1.6)
+
+Código: `src/license.ts` (regras, assinatura, verificação do ID token do Firebase) e
+`src/licenseRoutes.ts` (rotas). Testes: `npm test`.
+
+- `POST /license/check` — headers `Authorization: Bearer <ID token Firebase>`, `X-Device-Id: <ANDROID_ID>`;
+  corpo `{"nonce": "...", "versionCode": 106}`. Responde `{"payload": "<json>", "sig": "<ECDSA P-256 r||s base64>"}`.
+  O payload traz `status` (`trial` | `active` | `expired` | `device_limit`), `trialEndsAt`, `paidUntil`,
+  `serverTime`, `graceMs`, `minVersionCode`, `downloadUrl`, `code` (código curto da conta) e o `nonce`.
+- `POST /license/claim` — "Já paguei" (guarda `claim:<código>` no KV para o admin conferir).
+- `/admin/*` — protegido por `ADMIN_SECRET`; use `tools/unlock.sh` (lê o token de um arquivo).
+- `POST /webhook/cora` — gancho (501) para a liberação automática quando a API Pix da Cora for aprovada:
+  validar o webhook, achar a conta pelo txid (`RGV<código>`) e chamar `grantPaid(...)`.
+- Com `LICENSE_ENFORCE = "1"`, `/chat`, `/tts` e `/receipt` exigem conta (e-mail/senha), aparelho da conta,
+  `X-App-Version >= MIN_VERSION_CODE` e teste/assinatura em dia (402 se vencido, 426 se versão antiga).
+  `/token` (LiveKit) ainda não é barrado.
+
+Regras (no servidor, KV `LICENSES`):
+- `acct:<uid>`: `trialStart`, `paidUntil`, `devices[]`, `code`, `email`, `grants[]`.
+- `dev:<hash do ANDROID_ID>`: `trialStart`, `accounts[]`.
+- Conta nova em aparelho que já teve teste herda o `trialStart` do aparelho (sem teste novo).
+- A mesma conta em outro aparelho mantém o próprio teste/pagamento (até `MAX_DEVICES` aparelhos).
+
+### Publicar (só com autorização)
+```sh
+npx wrangler kv namespace create LICENSES        # copie o id para wrangler.toml ([[kv_namespaces]])
+npx wrangler secret put LICENSE_SIGNING_KEY < /workspace/secrets/license_signing_key.jwk
+npx wrangler secret put ADMIN_SECRET        < /workspace/secrets/license_admin_secret
+npm test && npx wrangler deploy
+```
+A chave pública correspondente está em `app/.../licenca/AssinaturaLicenca.kt` (`CHAVE_PUBLICA`).
