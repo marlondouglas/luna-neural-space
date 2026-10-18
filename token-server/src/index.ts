@@ -84,11 +84,11 @@ async function geminiReply(env: Env, system: string, messages: ChatMsg[]): Promi
   return typeof r2 === "string" ? r2 : null;
 }
 
-const SYSTEM_PROMPT = `Você é a Luna, copiloto simpática e direta de um motorista de aplicativo (99, Uber e InDrive) em Governador Valadares (MG). O motorista se chama Marlon e dirige um carro elétrico Geely (o gasto é com recarga elétrica, não combustível).
+const SYSTEM_PROMPT = `Você é a Luna, copiloto simpática e direta de um motorista de aplicativo (99, Uber, InDrive, Gogeta e corridas particulares) em Governador Valadares (MG). O motorista se chama Marlon e dirige um carro elétrico Geely (o gasto é com recarga elétrica, não combustível).
 Regras:
 - Você é a Luna, assistente do app LUNA Neural Space. Nunca diga que é o Gemini, um modelo do Google ou outra IA.
 - Responda sempre em português do Brasil, com frases curtas (no máximo 3 ou 4), porque ele pode estar dirigindo.
-- Use os dados do CONTEXTO abaixo (ganhos do dia por app, gastos, metas e percentuais, tempo de turno) quando forem relevantes. Valores em reais no formato R$ 0,00.
+- Use os dados do CONTEXTO abaixo (ganhos do dia por app, gastos, metas e percentuais, turno N/4 e tempo, envelopes de gastos com limite) quando forem relevantes. Valores em reais no formato R$ 0,00.
 - Não invente números que não estejam no contexto. Se não souber, diga que não sabe.
 - Seja encorajadora, prática e segura: nunca incentive a usar o celular dirigindo nem a correr riscos.
 - Você não consegue lançar ganhos nem mudar o turno por aqui; se ele pedir, explique que é só tocar nos botões do painel.`;
@@ -140,6 +140,86 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   }
 }
 
+// ---------------- /receipt: foto de nota fiscal -> JSON ----------------
+const RECEIPT_MAX_BODY = 3 * 1024 * 1024; // a foto chega reduzida (≤1600 px, JPEG) do app
+const RECEIPT_TIMEOUT_MS = 30_000;
+const RECEIPT_PROMPT = `Você lê fotos de notas fiscais, cupons e comprovantes de compra no Brasil.
+Extraia: loja (nome do estabelecimento), data da compra (AAAA-MM-DD, vazio se não aparecer), total pago em reais (número com ponto decimal, ex.: 800.5), um resumo curto dos itens (até 120 caracteres, em português) e se a imagem é mesmo um comprovante de compra (eh_compra).
+Se não for um comprovante, eh_compra = false e total = 0. Não invente valores.`;
+
+const RECEIPT_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    eh_compra: { type: "BOOLEAN" },
+    loja: { type: "STRING" },
+    data: { type: "STRING" },
+    total: { type: "NUMBER" },
+    itens: { type: "STRING" },
+  },
+  required: ["eh_compra", "loja", "total", "itens"],
+};
+
+async function geminiImagem(env: Env, model: string, mime: string, b64: string): Promise<any | number> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY ?? "" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ inline_data: { mime_type: mime, data: b64 } }, { text: RECEIPT_PROMPT }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json", responseSchema: RECEIPT_SCHEMA },
+        }),
+        signal: AbortSignal.timeout(RECEIPT_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) {
+      console.error("Gemini imagem HTTP", model, res.status);
+      return res.status;
+    }
+    const data: any = await res.json();
+    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+    const text = parts.filter((p) => !p?.thought && typeof p?.text === "string").map((p) => p.text).join("").trim();
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Gemini imagem:", model, (e as Error)?.name ?? "erro");
+    return 0;
+  }
+}
+
+async function handleReceipt(request: Request, env: Env): Promise<Response> {
+  if (!env.GEMINI_API_KEY) return json({ error: "Leitura de nota indisponível" }, 503);
+  const len = Number(request.headers.get("content-length") ?? "0");
+  if (len > RECEIPT_MAX_BODY) return json({ error: "Imagem grande demais" }, 413);
+  const raw = await request.text();
+  if (raw.length > RECEIPT_MAX_BODY) return json({ error: "Imagem grande demais" }, 413);
+  let body: any;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return json({ error: "JSON inválido" }, 400);
+  }
+  const mime = body?.mime === "image/png" || body?.mime === "image/webp" ? body.mime : "image/jpeg";
+  const img = typeof body?.image === "string" ? body.image.replace(/\s/g, "") : "";
+  if (img.length < 100 || !/^[A-Za-z0-9+/=]+$/.test(img)) return json({ error: "Envie a imagem em base64" }, 400);
+
+  let out = await geminiImagem(env, env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL, mime, img);
+  if (out === 503 || out === 429) out = await geminiImagem(env, GEMINI_LITE_MODEL, mime, img);
+  if (typeof out === "number" || !out || typeof out !== "object") return json({ error: "Não consegui ler a nota agora" }, 502);
+
+  const total = Number(out.total);
+  const centavos = Number.isFinite(total) && total > 0 ? Math.round(total * 100) : 0;
+  const data = typeof out.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.data) ? out.data : "";
+  return json({
+    eh_compra: out.eh_compra === true && centavos > 0,
+    loja: String(out.loja ?? "").slice(0, 80),
+    data,
+    total_centavos: centavos,
+    itens: String(out.itens ?? "").slice(0, 160),
+    provider: "gemini",
+  });
+}
+
 const ROOM_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IDENTITY_RE = /^[A-Za-z0-9_.@-]{1,128}$/;
 
@@ -161,6 +241,15 @@ function safeEqual(a: string, b: string): boolean {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/receipt") {
+      if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+      if (env.APP_SHARED_KEY) {
+        const sent = request.headers.get("x-app-key") ?? "";
+        if (!safeEqual(sent, env.APP_SHARED_KEY)) return json({ error: "Não autorizado" }, 401);
+      }
+      return handleReceipt(request, env);
+    }
 
     if (url.pathname === "/chat") {
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);
