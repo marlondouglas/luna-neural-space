@@ -1,6 +1,6 @@
 # Servidor de tokens LiveKit (Cloudflare Worker)
 
-Gera o token que o app LUNA Neural Space usa para entrar na sala de voz.
+Gera o token que o app Rota GV usa para entrar na sala de voz.
 Roda no plano gratuito do Cloudflare Workers (100 mil requisições por dia).
 
 ## Como o app chama

@@ -148,6 +148,7 @@ class PainelSmokeTest {
     companion object { private var semeado = false }
 
     @Test @Config(qualifiers = "w411dp-h891dp-port-xxhdpi") fun telefoneRetrato() = abrir("telefone-retrato")
+    @Test @Config(qualifiers = "w360dp-h780dp-port-xxhdpi") fun telefoneEstreito() = abrir("telefone-estreito")
     @Test @Config(qualifiers = "w891dp-h411dp-land-xxhdpi") fun telefonePaisagem() = abrir("telefone-paisagem")
     @Test @Config(qualifiers = "w800dp-h1280dp-port-mdpi") fun tabletRetrato() = abrir("tablet-retrato")
     @Test @Config(qualifiers = "w1280dp-h720dp-land-mdpi") fun centralPaisagem() = abrir("central-paisagem")

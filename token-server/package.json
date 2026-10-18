@@ -2,7 +2,7 @@
   "name": "luna-token-server",
   "private": true,
   "version": "0.1.0",
-  "description": "Servidor de tokens LiveKit do LUNA Neural Space (Cloudflare Worker)",
+  "description": "Servidor de tokens LiveKit do app Rota GV (Cloudflare Worker)",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"

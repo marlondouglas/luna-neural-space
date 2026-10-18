@@ -29,7 +29,7 @@ interface AcoesPainel {
 // ---------------- Cabeçalho ----------------
 class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito: Boolean = false) {
     val view: LinearLayout = ui.hbox().apply { setPadding(0, 0, 0, ui.dp(6)); gravity = Gravity.CENTER_VERTICAL; minimumHeight = ui.dp(52) }
-    private val saudacao = ui.text("", if (compacto) 18f else 22f, Cores.BRANCO, bold = true)
+    private val saudacao = ui.ajustavel("", if (compacto) 18f else 22f, 15f, Cores.BRANCO)  // encolhe antes de cortar o nome
     private val data = ui.text("", 13f, Cores.BRANCO_70)
     private val aoVivo = ui.text("● AO VIVO", 11f, Cores.MAGENTA, bold = true).apply {
         setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3))
@@ -49,15 +49,22 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito:
 
     init {
         val marca = ui.vbox().apply { gravity = Gravity.CENTER }
-        marca.addView(ui.text("LUNA", 12f, Cores.CIANO, bold = true).apply { letterSpacing = 0.3f })
-        marca.addView(ui.text("NEURAL SPACE", 8f, Cores.BRANCO_70).apply { letterSpacing = 0.15f })
-        if (!estreito) {
+        // Marca do app: "Rota GV" (a assistente continua sendo a Luna). No telefone em pé ela vai numa
+        // linha pequena acima da saudação, para não cortar o nome do motorista; encolhe sozinha se faltar espaço.
+        val noTopo = estreito && !compacto
+        val marcaTx = ui.ajustavel("ROTA GV", if (noTopo) 11f else 14f, 9f, Cores.CIANO).apply {
+            letterSpacing = 0.18f; maxLines = 1; contentDescription = "Rota GV"
+        }
+        if (!noTopo) {
+            marca.addView(marcaTx)
             view.addView(marca)
             view.addView(View(ui.ctx).apply { setBackgroundColor(Cores.alpha(Cores.BRANCO, 0.15f)) },
                 LinearLayout.LayoutParams(ui.dp(1), ui.dp(32)).apply { leftMargin = ui.dp(12) })
-        } else syncTx.visibility = View.GONE
+        }
+        if (estreito) syncTx.visibility = View.GONE
         ui.truncar(saudacao, 1); ui.truncar(data, 1)
         val textos = if (compacto) ui.hbox() else ui.vbox()
+        if (noTopo) textos.addView(marcaTx)
         textos.addView(saudacao)
         textos.addView(data, if (compacto) ui.wc(ui.dp(10)) else ui.mp())
         view.addView(textos, ui.peso(1f, if (estreito) 0 else ui.dp(12)))

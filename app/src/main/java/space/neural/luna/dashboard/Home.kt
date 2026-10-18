@@ -138,7 +138,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     /** v0.1.5: a Luna de verdade (foto animada: respira, pisca e fala com a boca sincronizada). */
     private val orb = space.neural.luna.avatar.LunaAvatarView(ui.ctx)
     /** Uma linha que encolhe a fonte (18 → 13 sp) para caber inteira, em vez de cortar em "Fale com a L…". */
-    private val titulo = ui.ajustavel("Fale com a Luna…", 18f, 13f).apply { ellipsize = android.text.TextUtils.TruncateAt.END; setShadowLayer(10f, 0f, 0f, Cores.alpha(Cores.OBSIDIAN, 0.6f)) }
+    private val titulo = ui.ajustavel("Fale com a Luna…", 18f, if (ui.ctx.resources.configuration.screenWidthDp < 400) 11f else 13f).apply { ellipsize = android.text.TextUtils.TruncateAt.END; setShadowLayer(10f, 0f, 0f, Cores.alpha(Cores.OBSIDIAN, 0.6f)) }
     /** Tela estreita (telefone em pé): legenda curta e botões menores, para "Fale com a Luna…" caber inteiro. */
     private val estreito = ui.ctx.resources.configuration.screenWidthDp < 480
     private val subPadrao = if (estreito) "Toque: falar · 2 toques: conversa" else "Toque para falar · toque duas vezes para abrir a conversa"
@@ -158,7 +158,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     init {
         val l = ui.hbox().apply { gravity = Gravity.CENTER_VERTICAL }
         orb.setOnClickListener { aoFalar() }
-        val orbDp = if (estreito) 54 else 64
+        val orbDp = if (ui.ctx.resources.configuration.screenWidthDp < 400) 46 else if (estreito) 54 else 64
         l.addView(orb, LinearLayout.LayoutParams(ui.dp(orbDp), ui.dp(orbDp)))
         val t = ui.vbox(); t.addView(titulo); t.addView(sub, ui.mp(ui.dp(2)))
         ui.truncar(sub, 2)
@@ -371,7 +371,9 @@ class RelatoriosCard(private val ui: Ui, private val aoAbrir: () -> Unit) {
 /** Calendário do mês: ponto verde nos dias com lançamento; toque abre o dia (ver/editar/lançar). */
 class CalendarioCard(private val ui: Ui, private val aoAbrirDia: (LocalDate) -> Unit) {
     val view = ui.card(acento = Cores.ESMERALDA)
-    private val titulo = ui.text("", 16f, Cores.BRANCO, bold = true).apply { gravity = Gravity.CENTER }
+    // Em telefones estreitos (< 400 dp) o mês ocupa menos e encolhe a fonte, para "›" não passar da borda.
+    private val estreito = ui.ctx.resources.configuration.screenWidthDp < 400
+    private val titulo = ui.ajustavel("", 16f, 11f, Cores.BRANCO).apply { gravity = Gravity.CENTER; maxLines = 1 }
     private val grade = ui.vbox()
     private var mes = YearMonth.now()
     private var painel: Painel? = null
@@ -383,7 +385,7 @@ class CalendarioCard(private val ui: Ui, private val aoAbrirDia: (LocalDate) -> 
         topo.addView(ui.titulo("Calendário"), ui.wc(ui.dp(8)))
         topo.addView(ui.espaco())
         topo.addView(ui.botao("‹", Ui.Estilo.TEXTO) { mes = mes.minusMonths(1); desenhar() }.apply { contentDescription = "Mês anterior"; textSize = 22f })
-        topo.addView(titulo, LinearLayout.LayoutParams(ui.dp(150), -2))
+        topo.addView(titulo, LinearLayout.LayoutParams(ui.dp(if (estreito) 112 else 150), -2))
         topo.addView(ui.botao("›", Ui.Estilo.TEXTO) { mes = mes.plusMonths(1); desenhar() }.apply { contentDescription = "Próximo mês"; textSize = 22f })
         view.addView(topo, ui.mp())
         view.addView(grade, ui.mp(ui.dp(6)))

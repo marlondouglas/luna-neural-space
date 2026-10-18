@@ -171,7 +171,7 @@ class AtualizacaoActivity : AppCompatActivity() {
             return
         }
         status.text = "Para instalar a atualização, o Android precisa que você permita " +
-            "\"instalar apps desconhecidos\" para o LUNA. Abrindo as configurações..."
+            "\"instalar apps desconhecidos\" para o Rota GV. Abrindo as configurações..."
         try {
             permissaoLauncher.launch(
                 Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
@@ -179,7 +179,7 @@ class AtualizacaoActivity : AppCompatActivity() {
         } catch (e: ActivityNotFoundException) {
             mostrarErro(
                 "Não consegui abrir as configurações. Permita \"instalar apps desconhecidos\" " +
-                    "para o LUNA nas configurações do Android e tente de novo.",
+                    "para o Rota GV nas configurações do Android e tente de novo.",
                 "Tentar instalar de novo",
             ) { instalar() }
         }
