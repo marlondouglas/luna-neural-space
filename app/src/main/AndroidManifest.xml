@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".LunaApp"
@@ -30,6 +31,22 @@
             android:name=".teste.TesteFirebaseActivity"
             android:exported="false"
             android:label="@string/teste_firebase" />
+
+        <activity
+            android:name=".update.AtualizacaoActivity"
+            android:exported="false"
+            android:label="@string/atualizacao" />
+
+        <!-- Entrega o APK baixado ao instalador do Android. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
 
         <!-- Mantém o usuário na sala de voz com o app minimizado. -->
         <service

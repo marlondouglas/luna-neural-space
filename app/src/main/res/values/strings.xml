@@ -6,4 +6,5 @@
     <string name="voice_leave">Sair da sala</string>
     <string name="teste_firebase">Teste Firebase</string>
     <string name="lancar_ganho_teste">Lançar ganho de teste</string>
+    <string name="atualizacao">Atualização</string>
 </resources>

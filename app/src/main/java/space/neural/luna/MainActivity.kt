@@ -7,6 +7,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import space.neural.luna.teste.TesteFirebaseActivity
+import space.neural.luna.update.AtualizacaoActivity
 
 /** As telas do app ainda serão construídas. Por enquanto só há a entrada para a tela de teste. */
 class MainActivity : AppCompatActivity() {
@@ -30,6 +31,19 @@ class MainActivity : AppCompatActivity() {
                 }
             },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT),
+        )
+        root.addView(
+            Button(this).apply {
+                text = getString(R.string.atualizacao)
+                setTextColor(getColor(R.color.branco))
+                setBackgroundColor(getColor(R.color.violeta))
+                minHeight = (56 * resources.displayMetrics.density).toInt()
+                setOnClickListener {
+                    startActivity(Intent(this@MainActivity, AtualizacaoActivity::class.java))
+                }
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = pad / 2 },
         )
         setContentView(root)
     }
