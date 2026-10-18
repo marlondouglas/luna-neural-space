@@ -28,10 +28,21 @@ sem o Firebase, os dados ficam só no celular; sem o LiveKit, a sala de voz não
 1. Criar uma conta e um projeto no [LiveKit Cloud](https://cloud.livekit.io) (tem plano gratuito).
 2. Em **Settings → Keys**, anotar a **URL do projeto** (`wss://...livekit.cloud`), a **API Key** e a **API Secret**.
    - A **API Secret nunca vai para o app nem para o GitHub**.
-3. Criar um **servidor de tokens** (o app pede o token a ele). Opções:
-   - o servidor de tokens de teste do LiveKit Cloud (**Sandbox → Token server**); ou
-   - um servidor próprio pequeno (por exemplo, uma função na nuvem) que usa a API Key e a API Secret
-     para gerar o token.
+3. Publicar o **servidor de tokens** que já está neste repositório, na pasta `token-server/`
+   (Cloudflare Workers, plano gratuito; o Firebase Functions exigiria o plano pago Blaze):
+   ```bash
+   cd token-server
+   npm install
+   npx wrangler login                          # entrar na conta Cloudflare pelo navegador
+   npx wrangler deploy                         # mostra a URL https://luna-token-server.<conta>.workers.dev
+   npx wrangler secret put LIVEKIT_API_SECRET  # colar a API Secret do LiveKit
+   ```
+   - Endpoint para o app: `https://luna-token-server.<conta>.workers.dev/token`.
+   - As salas precisam começar com `luna-`. Detalhes em `token-server/README.md`.
+   - Outras opções de servidor de tokens:
+     - o servidor de tokens de teste do LiveKit Cloud (**Sandbox → Token server**); ou
+     - um servidor próprio pequeno (por exemplo, uma função na nuvem) que usa a API Key e a API Secret
+       para gerar o token.
    - O app chama `GET <endpoint>?room=<sala>&identity=<usuário>` e aceita a resposta
      `{"serverUrl": "...", "participantToken": "..."}` ou `{"url": "...", "token": "..."}`.
 4. No computador que gera o APK, colocar em `local.properties` (arquivo fora do Git):

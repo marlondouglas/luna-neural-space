@@ -17,3 +17,8 @@ google-services.json
 *.jks
 *.keystore
 keystore.properties
+
+# Cloudflare Worker (token-server)
+.dev.vars
+.wrangler/
+node_modules/

@@ -1,0 +1,17 @@
+name = "luna-token-server"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Valores públicos (não são segredos).
+[vars]
+LIVEKIT_URL = "wss://luna-neural-space-vmz1wywd.livekit.cloud"
+LIVEKIT_API_KEY = "APIhv8yaezaW7g8"
+# Prefixo obrigatório do nome da sala.
+ROOM_PREFIX = "luna-"
+# Validade do token, em segundos (4 horas).
+TOKEN_TTL_SECONDS = "14400"
+
+# Segredos (NUNCA neste arquivo):
+#   npx wrangler secret put LIVEKIT_API_SECRET
+#   npx wrangler secret put APP_SHARED_KEY   (opcional)
