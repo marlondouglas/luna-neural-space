@@ -256,7 +256,7 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
             selo.background = ui.fundo(Cores.alpha(cor, 0.12f), Cores.alpha(cor, 0.6f), 12f)
             view.contentDescription = null
         }
-        tick(System.currentTimeMillis())
+        tick(space.neural.luna.sync.Relogio.agora())
     }
 
     /** Chamado a cada segundo: só atualiza textos. */

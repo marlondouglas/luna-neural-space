@@ -194,6 +194,10 @@ class LoginActivity : AppCompatActivity() {
                 if (criar) Conta.criar(nome.text.toString(), ident, senha.text.toString())
                 else Conta.entrar(ident, senha.text.toString())
                 Licenca.limpar(this@LoginActivity) // licença é por conta: consulta de novo
+                // v0.1.7: dados locais de outra conta saem; e já desce o que esta conta tem na nuvem.
+                Conta.uid()?.let { TrocaConta.aoEntrar(this@LoginActivity, it) }
+                space.neural.luna.sync.SyncManager.requestSync(this@LoginActivity, agora = true)
+                space.neural.luna.sync.RealtimeSync.ligar(this@LoginActivity)
                 startActivity(Intent(this@LoginActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
                 finish()
             } catch (e: Conta.ErroConta) {

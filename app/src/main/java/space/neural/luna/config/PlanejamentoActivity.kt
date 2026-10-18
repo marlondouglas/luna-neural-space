@@ -58,7 +58,13 @@ class PlanejamentoActivity : AppCompatActivity() {
         val (raiz, c) = telaSimples(this, ui, "Planejamento")
         conteudo = c
         montar()
-        setContentView(raiz)
+        // v0.1.7: até a primeira descida da nuvem, o Planejamento fica travado (na 0.1.6, mexer aqui num aparelho
+        // novo sobrescrevia o planejamento do outro aparelho com o padrão).
+        val tela = android.widget.FrameLayout(this)
+        tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
+        baixando = space.neural.luna.dashboard.BaixandoDados(ui, "Voltar") { finish() }.also { tela.addView(it.view, android.widget.FrameLayout.LayoutParams(-1, -1)) }
+        setContentView(tela)
+        lifecycleScope.launch { space.neural.luna.sync.PrimeiraCarga.mudou.collect { atualizarBaixando(); preencherCampos() } }
         lifecycleScope.launch {
             combine(repo.observePlanejamento(), repo.observeContasFixas(), repo.observeLimites(), repo.observeMetas()) { p, cf, l, m ->
                 arrayOf(p, cf, l, m)
@@ -68,11 +74,8 @@ class PlanejamentoActivity : AppCompatActivity() {
                     plano = (a[0] as Planejamento?) ?: Planejamento()
                     contas = a[1] as List<ContaFixa>; limites = a[2] as List<Limite>; metas = a[3] as List<Meta>
                 }
-                if (primeira) {
-                    primeira = false
-                    ganhoHora.setText(texto(plano.ganhoHoraCentavos))
-                    renda.setText(plano.rendaDesejadaCentavos?.let { texto(it) } ?: "")
-                }
+                carregou = true
+                preencherCampos()
                 desenhar()
             }
         }
@@ -80,9 +83,25 @@ class PlanejamentoActivity : AppCompatActivity() {
 
     override fun onPause() { salvarCampos(); super.onPause() }
 
+    private var baixando: space.neural.luna.dashboard.BaixandoDados? = null
+    private var carregou = false
+
+    private fun pronto() = space.neural.luna.sync.PrimeiraCarga.pronto(this, space.neural.luna.sync.Nuvem.uid(this))
+
+    private fun atualizarBaixando() { baixando?.bind(!pronto(), space.neural.luna.sync.Nuvem.temInternet(this)) }
+
+    /** Os campos só recebem o plano depois que ele existe de verdade (Room carregado e nuvem já baixada). */
+    private fun preencherCampos() {
+        if (!primeira || !carregou || !pronto()) return
+        primeira = false
+        ganhoHora.setText(texto(plano.ganhoHoraCentavos))
+        renda.setText(plano.rendaDesejadaCentavos?.let { texto(it) } ?: "")
+    }
+
     private fun texto(c: Long) = String.format(Locale.forLanguageTag("pt-BR"), "%.2f", c / 100.0)
 
     private fun salvarCampos() {
+        if (primeira || !pronto()) return
         val gh = Calculos.parseCentavos(ganhoHora.text.toString()) ?: plano.ganhoHoraCentavos
         val r = renda.text.toString().trim().let { if (it.isEmpty()) null else Calculos.parseCentavos(it) }
         if (gh != plano.ganhoHoraCentavos || r != plano.rendaDesejadaCentavos) {
@@ -132,6 +151,7 @@ class PlanejamentoActivity : AppCompatActivity() {
                     background = ui.fundo(if (on) Cores.CIANO else Cores.alpha(Cores.CIANO, 0.06f), Cores.alpha(Cores.CIANO, 0.6f), 12f)
                     contentDescription = "Semana ${s + 1}, ${nomesLongos[i]}: " + if (on) "trabalha" else "folga"
                     setOnClickListener {
+                        if (!pronto()) return@setOnClickListener
                         dias[s][i] = !dias[s][i]
                         plano = plano.copy(diasTrabalho = Plano.codificar(dias))
                         val p = plano

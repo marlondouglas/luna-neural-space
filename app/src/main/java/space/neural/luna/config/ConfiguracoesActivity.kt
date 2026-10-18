@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import space.neural.luna.BuildConfig
 import space.neural.luna.R
 import space.neural.luna.chat.ChatActivity
@@ -55,10 +56,7 @@ class ConfiguracoesActivity : AppCompatActivity() {
             item(g, R.drawable.ic_close, "Sair da conta", listOf(conta.nome(), conta.exibicao()).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Entrar com outra conta" }) {
                 androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Sair da conta?")
                     .setMessage("Seus lançamentos ficam guardados. O teste grátis e a assinatura continuam presos à conta.")
-                    .setPositiveButton("Sair") { _, _ ->
-                        space.neural.luna.licenca.Licenca.limpar(this); conta.sair()
-                        space.neural.luna.conta.LoginActivity.abrir(this, entrar = true)
-                    }.setNegativeButton("Cancelar", null).show()
+                    .setPositiveButton("Sair") { _, _ -> sairDaConta() }.setNegativeButton("Cancelar", null).show()
             }
         }
         grupo(c, R.drawable.ic_info, "Sistema", Cores.ESMERALDA) { g ->
@@ -113,4 +111,32 @@ class ConfiguracoesActivity : AppCompatActivity() {
     }
 
     private fun atualizar(l: View, titulo: String, v: Boolean) { l.contentDescription = "$titulo: ${if (v) "ligado" else "desligado"}" }
+
+    /**
+     * v0.1.7: antes de sair, sobe o que ainda não foi para a nuvem. Se não der (sem internet), avisa: se outra
+     * conta entrar neste aparelho, os dados locais são apagados (TrocaConta) e o pendente se perderia.
+     */
+    private fun sairDaConta() {
+        lifecycleScope.launch {
+            val db = space.neural.luna.data.local.LunaDatabase.get(this@ConfiguracoesActivity)
+            var pend = db.syncQueries().pendentes()
+            if (pend > 0) {
+                android.widget.Toast.makeText(this@ConfiguracoesActivity, "Enviando seus lançamentos para a nuvem…", android.widget.Toast.LENGTH_SHORT).show()
+                space.neural.luna.sync.RealtimeSync.enviarAntesDeSair(this@ConfiguracoesActivity)
+                pend = db.syncQueries().pendentes()
+            }
+            if (pend == 0) { sairAgora(); return@launch }
+            androidx.appcompat.app.AlertDialog.Builder(this@ConfiguracoesActivity).setTitle("Ainda não foi tudo para a nuvem")
+                .setMessage("${if (pend == 1) "1 lançamento ainda não foi enviado" else "$pend lançamentos ainda não foram enviados"} (sem internet).\n\n" +
+                    "Se você sair e entrar com OUTRA conta neste aparelho, eles serão apagados daqui. Entrando de novo com esta mesma conta, nada se perde.\n\n" +
+                    "O melhor é conectar à internet e tentar de novo.")
+                .setPositiveButton("Sair mesmo assim") { _, _ -> sairAgora() }
+                .setNegativeButton("Cancelar", null).show()
+        }
+    }
+
+    private fun sairAgora() {
+        space.neural.luna.licenca.Licenca.limpar(this); space.neural.luna.conta.Conta.sair()
+        space.neural.luna.conta.LoginActivity.abrir(this, entrar = true)
+    }
 }

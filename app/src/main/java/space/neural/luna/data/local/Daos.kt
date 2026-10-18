@@ -187,6 +187,22 @@ interface SyncQueries {
             "(SELECT COUNT(*) FROM contas_fixas WHERE dirty = 1) + (SELECT COUNT(*) FROM limites WHERE dirty = 1)"
     )
     fun observePendentes(): Flow<Int>
+
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM turnos WHERE dirty = 1) + (SELECT COUNT(*) FROM ganhos WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM gastos WHERE dirty = 1) + (SELECT COUNT(*) FROM metas WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM anotacoes WHERE dirty = 1) + (SELECT COUNT(*) FROM planejamento WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM contas_fixas WHERE dirty = 1) + (SELECT COUNT(*) FROM limites WHERE dirty = 1)"
+    )
+    suspend fun pendentes(): Int
+
+    /** Registros sincronizáveis no aparelho (inclusive excluídos). */
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM turnos) + (SELECT COUNT(*) FROM ganhos) + (SELECT COUNT(*) FROM gastos) + " +
+            "(SELECT COUNT(*) FROM metas) + (SELECT COUNT(*) FROM anotacoes) + (SELECT COUNT(*) FROM planejamento) + " +
+            "(SELECT COUNT(*) FROM contas_fixas) + (SELECT COUNT(*) FROM limites)"
+    )
+    suspend fun total(): Int
 }
 
 /** Histórico da conversa com a Luna. */

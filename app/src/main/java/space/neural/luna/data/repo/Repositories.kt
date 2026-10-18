@@ -1,6 +1,7 @@
 package space.neural.luna.data.repo
 
 import android.content.Context
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import space.neural.luna.data.local.Anotacao
 import space.neural.luna.data.local.ContaFixa
@@ -20,10 +21,11 @@ import space.neural.luna.sync.SyncManager
  * (marcada como dirty) e só depois a sincronização é agendada.
  * Sem internet, o app continua funcionando com os dados locais.
  */
-class LunaRepositories(context: Context) {
+class LunaRepositories(context: Context, banco: LunaDatabase? = null) {
     private val appContext = context.applicationContext
-    private val db = LunaDatabase.get(appContext)
-    private fun now() = System.currentTimeMillis()
+    private val db = banco ?: LunaDatabase.get(appContext)
+    /** v0.1.7: hora corrigida pelo servidor (decide conflitos entre aparelhos). */
+    fun now() = space.neural.luna.sync.Relogio.agora()
     private fun sync() = SyncManager.requestSync(appContext)
 
     // ---- Turno ----
@@ -59,6 +61,15 @@ class LunaRepositories(context: Context) {
      */
     suspend fun mudarEstado(turno: Turno, novoEstado: String, agora: Long = now()) {
         salvarTurno(space.neural.luna.data.local.MaquinaTurno.mudar(turno, novoEstado, agora))
+    }
+
+    /**
+     * v0.1.7: turnos de uma ação já carimbados (updatedAt) e confirmados pela guarda do turno compartilhado.
+     * [enviado] = a transação já gravou no servidor, então o registro local fica limpo (não sobe de novo).
+     */
+    suspend fun salvarTurnosConfirmados(turnos: List<Turno>, enviado: Boolean) {
+        db.withTransaction { for (t in turnos) db.turnoDao().upsert(t.copy(dirty = !enviado)) }
+        if (!enviado) sync()
     }
 
     suspend fun excluirTurno(id: String) {

@@ -31,8 +31,8 @@ android {
         applicationId = "space.neural.luna"
         minSdk = 26
         targetSdk = 35
-        versionCode = 106
-        versionName = "0.1.6"
+        versionCode = 107
+        versionName = "0.1.7"
 
         buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
         buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
@@ -57,7 +57,11 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
-        unitTests.all { t -> System.getProperty("luna.shots")?.let { t.systemProperty("luna.shots", it) } }
+        unitTests.all { t ->
+            System.getProperty("luna.shots")?.let { t.systemProperty("luna.shots", it) }
+            // Teste de dois aparelhos no emulador do Firestore (opcional): -Dluna.emulador=127.0.0.1:8090
+            System.getProperty("luna.emulador")?.let { t.systemProperty("luna.emulador", it) }
+        }
     }
 
     buildFeatures {

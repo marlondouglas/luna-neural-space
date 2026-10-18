@@ -84,7 +84,7 @@ class LocalCerebro : LunaCerebro {
                 else "Nenhuma recarga lançada hoje. Toque em Energia no resumo para lançar."
             tem(q, "gasto", "gastei") -> "Gastos de hoje: ${Fmt.reais(r.gastosCentavos)} (energia ${Fmt.reais(r.energiaCentavos)}, manutenção ${Fmt.reais(r.manutencaoCentavos)}, outros ${Fmt.reais(r.outrosCentavos)})."
             tem(q, "hora", "turno", "tempo") -> {
-                val agora = System.currentTimeMillis()
+                val agora = space.neural.luna.sync.Relogio.agora()
                 val t = painel.turno
                 if (t == null) "Você está sem turno. Diga \"iniciar turno\" ou toque em Iniciar no painel."
                 else {

@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!portaoLicenca()) { bloqueada = true; return }
-        ui = Ui(this); repo = LunaRepositories(this); acoes = TurnoAcoes(repo); dlg = Dialogos(this, repo, lifecycleScope)
+        ui = Ui(this); repo = LunaRepositories(this); acoes = TurnoAcoes(repo) { space.neural.luna.sync.RealtimeSync.guarda(this) }; dlg = Dialogos(this, repo, lifecycleScope)
         online = temInternet()
         externo = Externo.cache(this)
         montarLayout(animar = savedInstanceState == null)
@@ -131,11 +131,13 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         lifecycleScope.launch {
             Painel.observar(repo).collect { p -> painel = p; desenhar() }
         }
+        // v0.1.7: "Baixando seus dados…" até a primeira descida da nuvem desta conta neste aparelho.
+        lifecycleScope.launch { space.neural.luna.sync.PrimeiraCarga.mudou.collect { atualizarBaixando() } }
         // Contador do turno: só o texto muda a cada segundo.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
-                    val agora = System.currentTimeMillis()
+                    val agora = space.neural.luna.sync.Relogio.agora()
                     turnoCard.tick(agora)
                     painel?.let { turnoCard.tickResumo(it, agora) }
                     delay(1000 - agora % 1000)
@@ -233,6 +235,35 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         if (bloqueada) return
         runCatching { rede.registerDefaultNetworkCallback(redeCb) }
         mudouRede()
+        // v0.1.7: toda vez que o painel aparece, desce o que o outro aparelho lançou (e liga o tempo real).
+        SyncManager.requestSync(this, agora = true)
+        space.neural.luna.sync.RealtimeSync.ligar(this)
+        atualizarBaixando()
+    }
+
+    // ---------------- v0.1.7: primeira descida e turno no outro aparelho ----------------
+
+    private var baixando: space.neural.luna.dashboard.BaixandoDados? = null
+    /** "Continuar sem esperar" (sem internet): some nesta abertura; o Planejamento continua travado. */
+    private var pularBaixando = false
+
+    private fun atualizarBaixando() {
+        val b = baixando ?: return
+        val uid = space.neural.luna.sync.Nuvem.uid(this)
+        val precisa = !pularBaixando && !space.neural.luna.sync.PrimeiraCarga.pronto(this, uid)
+        b.bind(precisa, online)
+    }
+
+    /** Roda uma ação de turno; se o turno mudou no outro aparelho, avisa (o estado de lá já veio para cá). */
+    private fun turno(bloco: suspend () -> Unit) {
+        lifecycleScope.launch {
+            try { bloco() } catch (e: space.neural.luna.sync.TurnoNoOutroAparelho) { avisarOutroAparelho(e.message.orEmpty()) }
+        }
+    }
+
+    fun avisarOutroAparelho(msg: String) {
+        space.neural.luna.sync.RealtimeSync.sincronizarAgora()
+        AlertDialog.Builder(this).setTitle("Mudou no outro aparelho").setMessage(msg).setPositiveButton("Entendi", null).show()
     }
 
     override fun onStop() {
@@ -319,7 +350,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
             val mudou = o != online
             online = o
             desenhar()
-            if (mudou && o) SyncManager.requestSync(this)
+            atualizarBaixando()
+            if (mudou && o) SyncManager.requestSync(this, agora = true)
         }
     }
 
@@ -416,7 +448,10 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val tela = android.widget.FrameLayout(this)
         tela.addView(GalaxiaView(this), android.widget.FrameLayout.LayoutParams(-1, -1))
         tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
+        baixando = space.neural.luna.dashboard.BaixandoDados(ui, "Continuar sem esperar") { pularBaixando = true; atualizarBaixando() }
+            .also { tela.addView(it.view, android.widget.FrameLayout.LayoutParams(-1, -1)) }
         setContentView(tela)
+        atualizarBaixando()
         ViewCompat.setOnApplyWindowInsetsListener(raiz) { v, ins ->
             val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(b.left + margem, b.top + margem / 2, b.right + margem, b.bottom); ins
@@ -428,7 +463,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val p = painel ?: run {
             noticias.bind(externo, online, carregandoExterno); dica.bind(java.time.LocalDate.now()); return
         }
-        val agora = System.currentTimeMillis()
+        val agora = space.neural.luna.sync.Relogio.agora()
         cab.bind(p, online, BuildConfig.FIREBASE_CONFIGURED)
         turnoCard.bind(p.situacao)
         turnoCard.bindResumo(p, agora, sugerirParar(p, agora))
@@ -475,16 +510,16 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
 
     private fun comTurno(f: suspend (space.neural.luna.data.local.Turno) -> Unit) {
         val t = painel?.turno ?: return
-        lifecycleScope.launch { f(t) }
+        turno { f(t) }
     }
 
-    override fun iniciar() { painel?.let { p -> lifecycleScope.launch { acoes.iniciar(p.situacao) } } }
+    override fun iniciar() { painel?.let { p -> turno { acoes.iniciar(p.situacao) } } }
     override fun pausar() = comTurno { acoes.pausar(it) }
     override fun cafe() = comTurno { acoes.cafe(it) }
     /** Retomar pausa/café, retomar o turno 4 já fechado ou reabrir o dia concluído. */
     override fun retomar() {
         val t = painel?.situacao?.turno ?: return
-        lifecycleScope.launch { acoes.retomar(t) }
+        turno { acoes.retomar(t) }
     }
     /** Fecha o turno sem bloquear: o próximo já fica pronto; a correção fica como opção no card. */
     override fun fecharTurno() = comTurno {
@@ -496,7 +531,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     override fun concluir() {
         val p = painel ?: return
         dlg.confirmar("Concluir dia", "Encerra o dia de trabalho e guarda os turnos no histórico.", "Concluir dia") {
-            lifecycleScope.launch {
+            turno {
                 acoes.concluirDia(p.turnosTodos, p.situacao)
                 Toast.makeText(this@MainActivity, "Dia concluído e salvo no histórico.", Toast.LENGTH_SHORT).show()
             }
@@ -516,11 +551,11 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
             when (op) {
                 MaquinaTurno.OpcaoZerar.SO_ESTE -> Triple("Zerar só este turno",
                     "O turno $n continua, com o contador em 00:00:00. Os ganhos lançados continuam.") {
-                    s.turno?.let { t -> lifecycleScope.launch { acoes.zerar(t) } }; Unit
+                    s.turno?.let { t -> turno { acoes.zerar(t) } }; Unit
                 }
                 MaquinaTurno.OpcaoZerar.VOLTAR -> Triple("Voltar para o turno anterior",
                     "Desfaz o “Fechar turno”: apaga o turno $n e reabre o turno ${n - 1} com o tempo que ele já tinha.") {
-                    lifecycleScope.launch {
+                    turno {
                         val r = acoes.voltar(s, p.turnosTodos)
                         val msg = when {
                             r == null -> "Não deu para voltar: não achei o turno anterior."
@@ -536,7 +571,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
                     dlg.confirmar("Zerar o dia?",
                         "Vou apagar ${if (qtd == 1) "o turno de hoje" else "os $qtd turnos de hoje"} e o dia volta para o Turno 1/${MaquinaTurno.TOTAL}, sem iniciar.\n\n" +
                             "Os ganhos e gastos de hoje NÃO são apagados: continuam no resumo do dia.", "Sim, zerar o dia") {
-                        lifecycleScope.launch {
+                        turno {
                             acoes.zerarDia(p.turnosTodos, s)
                             Toast.makeText(this@MainActivity, "Dia zerado. Turno 1 pronto para iniciar.", Toast.LENGTH_SHORT).show()
                         }
@@ -609,7 +644,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     override fun conversar() = startActivity(Intent(this, ChatActivity::class.java))
 
     override fun sincronizar() {
-        SyncManager.requestSync(this)
+        SyncManager.requestSync(this, agora = true)
+        space.neural.luna.sync.RealtimeSync.sincronizarAgora()
         Toast.makeText(this, if (online) "Sincronizando…" else "Sem internet: sincroniza quando a conexão voltar.", Toast.LENGTH_SHORT).show()
     }
 

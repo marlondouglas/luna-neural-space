@@ -152,7 +152,7 @@ class LancamentosActivity : AppCompatActivity() {
     /** Os 4 turnos do dia: início, término, pausas e horas (editáveis; dá para lançar dias passados). */
     private fun cardTurnos(data: String, futuro: Boolean): LinearLayout {
         val c = ui.card(destaque = true, acento = Cores.CIANO)
-        val agora = System.currentTimeMillis()
+        val agora = space.neural.luna.sync.Relogio.agora()
         val total = turnosDia.sumOf { MaquinaTurno.trabalhoMs(it, agora) }
         c.addView(ui.hbox().apply {
             addView(ui.tituloIcone(R.drawable.ic_timer, "Turnos do dia", Cores.CIANO), ui.peso(1f))
@@ -214,7 +214,7 @@ class LancamentosActivity : AppCompatActivity() {
             bIni.text = "Início: ${hhmm(ini)}"
             bFim.text = if (fimMs == null) "Término: em andamento" else "Término: ${hhmm(fimMs!!)}"
             horas.text = calc()?.let { "Horas trabalhadas: ${Fmt.hms(it).substring(0, 5)}" }
-                ?: "Horas trabalhadas: ${Fmt.hms(MaquinaTurno.trabalhoMs(t, System.currentTimeMillis()) + ((t?.inicio ?: ini) - ini)).substring(0, 5)} (em andamento)"
+                ?: "Horas trabalhadas: ${Fmt.hms(MaquinaTurno.trabalhoMs(t, space.neural.luna.sync.Relogio.agora()) + ((t?.inicio ?: ini) - ini)).substring(0, 5)} (em andamento)"
         }
         bIni.setOnClickListener { escolherHora(ini) { ini = it; pintar() } }
         bFim.setOnClickListener { if (fimMs != null) escolherHora(fimMs!!) { v -> fimMs = if (v <= ini) v + 86_400_000L else v; pintar() } }

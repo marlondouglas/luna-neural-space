@@ -20,14 +20,19 @@ object SyncManager {
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
-    /** Pede uma sincronização assim que houver internet (após cada alteração local). */
-    fun requestSync(context: Context) {
+    /**
+     * Pede uma sincronização (após cada alteração local, ao abrir o app e ao fazer login).
+     * Com o tempo real ligado, a alteração já sobe na hora; o worker fica como reserva, 20 s depois.
+     */
+    fun requestSync(context: Context, agora: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .apply { if (!agora && RealtimeSync.ativo) setInitialDelay(20, TimeUnit.SECONDS) }
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(ONE_TIME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        if (!agora) RealtimeSync.pedirEnvio()
     }
 
     /** Sincronização periódica, para trazer dados da nuvem mesmo sem alterações locais. */

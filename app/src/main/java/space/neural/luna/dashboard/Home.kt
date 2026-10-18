@@ -274,7 +274,7 @@ class FundoLuna(private val ui: Ui) : android.graphics.drawable.Drawable() {
 object Relatorio {
     data class Item(val titulo: String, val valor: String, val sub: String, val cor: Int, val icone: Int)
 
-    fun calcular(p: Painel, agora: Long = System.currentTimeMillis()): List<Item> {
+    fun calcular(p: Painel, agora: Long = space.neural.luna.sync.Relogio.agora()): List<Item> {
         val hoje = p.hoje
         val mesPre = hoje.toString().substring(0, 7)
         val iniSem = hoje.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString()

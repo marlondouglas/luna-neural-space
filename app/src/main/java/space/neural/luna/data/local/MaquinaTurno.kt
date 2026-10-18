@@ -62,11 +62,19 @@ object MaquinaTurno {
         return acum.copy(estado = novo, ultimoEvento = agora, fim = fim)
     }
 
+    /**
+     * v0.1.7: id fixo por dia e número ("2026-10-18_1"). Dois aparelhos que iniciam o turno 1 do mesmo dia
+     * (ex.: um deles sem internet) mexem no MESMO registro, que se resolve pelo "último a alterar vence",
+     * em vez de criar dois turnos 1/4.
+     */
+    fun idDoTurno(dia: String, numero: Int): String = "${dia}_${numero.coerceIn(1, TOTAL)}"
+
     /** Iniciar: usa o turno pronto (zerado) ou cria o próximo número do dia. */
     fun iniciar(s: Situacao, hoje: String, agora: Long): Turno {
         val pronto = s.turno?.takeIf { it.estado == EstadoTurno.PRONTO }
+        val n = s.numero.coerceIn(1, TOTAL)
         return pronto?.copy(estado = EstadoTurno.ATIVO, inicio = agora, ultimoEvento = agora, fim = null)
-            ?: Turno(data = hoje, inicio = agora, ultimoEvento = agora, numero = s.numero.coerceIn(1, TOTAL))
+            ?: Turno(id = idDoTurno(hoje, n), data = hoje, inicio = agora, ultimoEvento = agora, numero = n)
     }
 
     /** Zerar tempo: contador volta a 00:00:00 e o turno fica "pronto para iniciar". */

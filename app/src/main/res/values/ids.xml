@@ -1,5 +1,6 @@
 <resources>
     <item name="rolagem_principal" type="id" />
+    <item name="baixando_dados" type="id" />
     <item name="rolagem_esquerda" type="id" />
     <item name="rolagem_direita" type="id" />
     <item name="rolagem_col1" type="id" />

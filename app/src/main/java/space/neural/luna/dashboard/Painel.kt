@@ -44,7 +44,7 @@ data class Painel(
     val gastosLimites: List<Gasto> = emptyList(),
 ) {
     /** Trabalho do dia: soma dos turnos de hoje ainda não concluídos (+ o turno aberto). */
-    fun trabalhoDia(agora: Long = System.currentTimeMillis()): Long {
+    fun trabalhoDia(agora: Long = space.neural.luna.sync.Relogio.agora()): Long {
         val h = hoje.toString()
         val dia = turnosTodos.filter { !it.deleted && it.data == h && it.estado != EstadoTurno.CONCLUIDO && it.id != turno?.id }
         return dia.sumOf { MaquinaTurno.trabalhoMs(it, agora) } + MaquinaTurno.trabalhoMs(turno, agora)
@@ -63,11 +63,11 @@ data class Painel(
         return Plano.recalcular(plano, contas, limites, envelopes(), mes - dia, hoje, sem - dia)
     }
 
-    fun estatisticas(p: Periodo, agora: Long = System.currentTimeMillis()) =
+    fun estatisticas(p: Periodo, agora: Long = space.neural.luna.sync.Relogio.agora()) =
         Estatisticas.calcular(p, hoje, agora, ganhosTodos, gastosTodos, turnosTodos, metasTodas)
 
     /** Resumo para a conversa com a Luna (vai para o servidor de chat; sem dados pessoais além dos números). */
-    fun contexto(agora: Long = System.currentTimeMillis()): JSONObject = JSONObject().apply {
+    fun contexto(agora: Long = space.neural.luna.sync.Relogio.agora()): JSONObject = JSONObject().apply {
         val trab = trabalhoDia(agora)
         put("hoje", hoje.toString())
         put("turno_numero", "${situacao.numero}/${MaquinaTurno.TOTAL}")

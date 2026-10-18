@@ -32,14 +32,14 @@ import java.util.Base64
  * Respostas podem trazer botões; o botão manda [Botao.comando] de volta.
  * Nada muda nos dados sem ele confirmar.
  */
-class LunaConversa private constructor(ctx: Context) {
+class LunaConversa private constructor(private val appCtx: Context) {
     data class Botao(val rotulo: String, val comando: String, val principal: Boolean = false)
     data class Resposta(val texto: String, val botoes: List<Botao> = emptyList(), val usouIa: Boolean? = null)
 
     /** Nota fiscal lida pela IA e ainda não salva. */
     data class Nota(val loja: String, val totalCentavos: Long, val data: String, val itens: String)
 
-    private val repo = LunaRepositories(ctx)
+    private val repo = LunaRepositories(appCtx)
     private val remoto = RemotoCerebro()
     private val local = LocalCerebro()
     private val trava = Mutex()
@@ -95,7 +95,7 @@ class LunaConversa private constructor(ctx: Context) {
                 else -> ganhoPendente = null
             }
         }
-        val acoes = TurnoAcoes(repo)
+        val acoes = TurnoAcoes(repo) { space.neural.luna.sync.RealtimeSync.guarda(appCtx) }
         return when (val c = Comandos.interpretar(texto)) {
             is Comandos.Comando.Ganho -> {
                 ganhoPendente = c
@@ -105,7 +105,7 @@ class LunaConversa private constructor(ctx: Context) {
             is Comandos.Comando.Turno -> {
                 val t = p.turno
                 val s = p.situacao
-                Resposta(when (c.acao) {
+                try { Resposta(when (c.acao) {
                     "INICIAR" -> when (s.fase) {
                         MaquinaTurno.Fase.PRONTO -> { acoes.iniciar(s); "Turno ${s.numero}/4 iniciado! Boa rota. ▶" }
                         MaquinaTurno.Fase.ULTIMO_FECHADO -> "Os 4 turnos de hoje já foram. Diga \"retomar\" para continuar no turno 4 ou conclua o dia no painel."
@@ -116,7 +116,7 @@ class LunaConversa private constructor(ctx: Context) {
                     "CAFE" -> if (t?.estado == EstadoTurno.ATIVO || t?.estado == EstadoTurno.PAUSADO) { acoes.cafe(t); "Bom café! ☕ O tempo conta como parado." } else "Não há turno aberto."
                     "RETOMAR" -> if (t != null && (t.estado == EstadoTurno.PAUSADO || t.estado == EstadoTurno.CAFE || t.estado == EstadoTurno.FECHADO)) { acoes.retomar(t); "De volta ao trabalho! ▶" } else "O turno não está pausado."
                     else -> return null
-                })
+                }) } catch (e: space.neural.luna.sync.TurnoNoOutroAparelho) { Resposta(e.message.orEmpty()) }
             }
             null -> null
         }

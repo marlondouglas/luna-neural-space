@@ -60,7 +60,9 @@ object Conta {
         traduzir { a.sendPasswordResetEmail(email.emailFirebase).await() }
     }
 
-    fun sair() { auth()?.signOut() }
+    fun sair() { space.neural.luna.sync.RealtimeSync.desligar(); auth()?.signOut() }
+
+    fun uid(): String? = usuario()?.uid
 
     /** ID token atual (renovado pelo Firebase quando perto de vencer). Chamar fora da thread principal. */
     suspend fun idToken(forcar: Boolean = false): String? =
