@@ -95,7 +95,7 @@ class AnotacoesActivity : AppCompatActivity() {
 
 /** Tela com cabeçalho (voltar + título) e conteúdo rolável. */
 internal fun telaSimples(act: AppCompatActivity, ui: Ui, titulo: String): Pair<LinearLayout, LinearLayout> {
-    val raiz = ui.vbox(ui.dp(16)).apply { setBackgroundColor(Cores.OBSIDIAN) }
+    val raiz = ui.vbox(ui.dp(16)).apply { background = FundoNeon() }
     val cab = ui.hbox()
     cab.addView(ui.botaoIcone(R.drawable.ic_close, "Voltar") { act.finish() })
     cab.addView(ui.text(titulo, 20f, Cores.BRANCO, bold = true), ui.peso(1f, ui.dp(8)))

@@ -30,6 +30,13 @@ object Cores {
     const val VIOLETA = 0xFF8D6BFF.toInt()
     const val CIANO = 0xFF49E0FF.toInt()
     const val ESMERALDA = 0xFF3EE0A0.toInt()
+    // Acentos neon (v0.1.4)
+    const val MAGENTA = 0xFFFF4FD8.toInt()
+    const val LARANJA = 0xFFFF9F43.toInt()
+    /** Só para variação negativa (pílula ▼) e valores abaixo de zero, sempre com ícone/sinal. */
+    const val CORAL = 0xFFFF5C7A.toInt()
+    /** Amarelo neon (corridas particulares). */
+    const val AMARELO = 0xFFFFE15A.toInt()
 
     fun alpha(c: Int, a: Float): Int = Color.argb((a * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
 
@@ -77,7 +84,19 @@ object Fmt {
         AppCorrida.NOVENTA_E_NOVE -> "99"
         AppCorrida.UBER -> "Uber"
         AppCorrida.INDRIVE -> "InDrive"
+        AppCorrida.GOGETA -> "Gogeta"
+        AppCorrida.PARTICULAR -> "Particular"
         else -> "Outro"
+    }
+
+    /** Sigla do selo de cada fonte de ganho. */
+    fun siglaApp(app: String): String = when (app) {
+        AppCorrida.NOVENTA_E_NOVE -> "99"
+        AppCorrida.UBER -> "U"
+        AppCorrida.INDRIVE -> "iD"
+        AppCorrida.GOGETA -> "G"
+        AppCorrida.PARTICULAR -> "P"
+        else -> "?"
     }
 
     fun nomeCategoria(c: String): String = when (c) {
@@ -85,6 +104,9 @@ object Fmt {
         CategoriaGasto.MANUTENCAO -> "🔧 Manutenção"
         else -> "Outro gasto"
     }
+
+    /** 12.4 -> "12,4%" */
+    fun pct(v: Double): String = String.format(ptBR, if (v >= 100) "%.0f%%" else "%.1f%%", v)
 
     fun kwh(v: Double): String = String.format(ptBR, if (v % 1.0 == 0.0) "%.0f" else "%.1f", v)
 }
@@ -147,14 +169,27 @@ class Ui(val ctx: Context) {
         if (borda != null) setStroke(dp(bordaDp), borda)
     }
 
-    /** Card com gradiente sutil (violeta 14% -> 6% sobre obsidian) e borda violeta fraca. */
-    fun card(destaque: Boolean = false): LinearLayout = vbox(dp(16)).apply {
-        background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, if (destaque) 0.20f else 0.14f), Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.05f)),
-        ).apply {
-            cornerRadius = dpf(20f)
-            setStroke(dp(1), Cores.alpha(Cores.VIOLETA, if (destaque) 0.55f else 0.25f))
+    /** Card de vidro com profundidade (brilho interno, bisel, borda neon e sombra colorida). */
+    fun card(destaque: Boolean = false, acento: Int = Cores.VIOLETA, colorido: Boolean = false): LinearLayout = vbox(dp(16)).apply {
+        background = VidroDrawable(d, acento, destaque, colorido)
+        elevation = dpf(if (destaque) 14f else 8f)
+        outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            outlineSpotShadowColor = acento; outlineAmbientShadowColor = acento
+        }
+    }
+
+    /** Pílula de variação: ▲ +12,4% (esmeralda) / ▼ −5,0% (coral) / neutra. */
+    fun pilula(variacao: Double?, sufixo: String): TextView {
+        val (txt, cor) = when {
+            variacao == null -> "● novo $sufixo" to Cores.BRANCO_70
+            variacao >= 0.05 -> "▲ +${Fmt.pct(variacao)} $sufixo" to Cores.ESMERALDA
+            variacao <= -0.05 -> "▼ −${Fmt.pct(-variacao)} $sufixo" to Cores.CORAL
+            else -> "● 0% $sufixo" to Cores.BRANCO_70
+        }
+        return text(txt, 11f, cor, bold = true).apply {
+            setPadding(dp(8), dp(3), dp(8), dp(3)); maxLines = 1
+            background = fundo(Cores.alpha(cor, 0.14f), Cores.alpha(cor, 0.55f), 10f)
         }
     }
 
@@ -201,7 +236,9 @@ class Ui(val ctx: Context) {
             minWidth = dp(48); minimumWidth = minWidth
             setPadding(dp(14), 0, dp(14), 0)
             val (bg, fg) = when (estilo) {
-                Estilo.CHEIO_VIOLETA -> fundo(Cores.VIOLETA, raio = 14f) to Cores.OBSIDIAN
+                Estilo.CHEIO_VIOLETA -> GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Cores.mix(Cores.VIOLETA, Cores.BRANCO, 0.15f), Cores.mix(Cores.VIOLETA, Cores.MAGENTA, 0.45f))).apply {
+                    cornerRadius = dpf(14f); setStroke(dp(1), Cores.alpha(Cores.BRANCO, 0.35f))
+                } to Cores.OBSIDIAN
                 Estilo.CHEIO_ESMERALDA -> fundo(Cores.ESMERALDA, raio = 14f) to Cores.OBSIDIAN
                 Estilo.CONTORNO -> fundo(Color.TRANSPARENT, Cores.alpha(Cores.VIOLETA, 0.8f), 14f) to Cores.BRANCO
                 Estilo.TEXTO -> fundo(Color.TRANSPARENT, raio = 14f) to Cores.VIOLETA
@@ -209,8 +246,22 @@ class Ui(val ctx: Context) {
             setTextColor(fg)
             if (estilo != Estilo.CONTORNO && estilo != Estilo.TEXTO) setTypeface(typeface, Typeface.BOLD)
             background = RippleDrawable(ColorStateList.valueOf(Cores.alpha(Cores.BRANCO, 0.25f)), bg, null)
+            if (estilo == Estilo.CHEIO_VIOLETA || estilo == Estilo.CHEIO_ESMERALDA) {
+                elevation = dpf(8f)
+                if (android.os.Build.VERSION.SDK_INT >= 28) { outlineSpotShadowColor = if (estilo == Estilo.CHEIO_VIOLETA) Cores.MAGENTA else Cores.ESMERALDA; outlineAmbientShadowColor = outlineSpotShadowColor }
+            }
+            maxLines = 1
             setOnClickListener(onClick)
         }
+
+    /** Selo redondo com a sigla e a cor neon da fonte de ganho (99, Uber, InDrive, Gogeta, Particular). */
+    fun seloApp(app: String, tamanho: Int = 26): TextView = text(Fmt.siglaApp(app), if (tamanho >= 26) 11f else 9f, Cores.OBSIDIAN, bold = true).apply {
+        gravity = Gravity.CENTER
+        val cor = CoresSerie.app(app)
+        background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Cores.mix(cor, Cores.BRANCO, 0.35f), cor)).apply { shape = GradientDrawable.OVAL }
+        layoutParams = LinearLayout.LayoutParams(dp(tamanho), dp(tamanho))
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
 
     fun selo(s: String, cor: Int) = text(s, 13f, cor, bold = true).apply {
         setPadding(dp(10), dp(4), dp(10), dp(4))
@@ -234,4 +285,86 @@ class Ui(val ctx: Context) {
         .apply { leftMargin = left }
 
     fun espaco() = View(ctx).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) }
+}
+
+/**
+ * Fundo de card em "vidro": gradiente vertical translúcido, brilho interno no topo,
+ * bisel escuro embaixo e borda neon em degradê. Shaders refeitos só quando o tamanho muda.
+ */
+class VidroDrawable(
+    private val d: Float, private val acento: Int, private val destaque: Boolean,
+    /** Card "colorido": corpo preenchido com degradê do acento (não só a borda). */
+    private val colorido: Boolean = false,
+) : android.graphics.drawable.Drawable() {
+    private val raio = 20 * d
+    private val r = android.graphics.RectF()
+    private val corpo = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val brilho = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = 1.5f * d }
+    private val borda = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = 1f * d }
+    private val bisel = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = 2f * d }
+    private val reflexo = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val path = android.graphics.Path()
+    private val clip = android.graphics.Path()
+
+    override fun onBoundsChange(b: android.graphics.Rect) {
+        val w = b.width().toFloat(); val h = b.height().toFloat()
+        val t = android.graphics.Shader.TileMode.CLAMP
+        corpo.shader = if (colorido) android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
+            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.62f), 0.95f), Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.mix(acento, Cores.VIOLETA, 0.6f), 0.38f), 0.95f),
+                Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.22f), 0.95f)), floatArrayOf(0f, 0.55f, 1f), t)
+        else android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(),
+            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, if (destaque) 0.26f else 0.18f), 0.92f),
+                Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.06f), 0.92f)), null, t)
+        brilho.shader = android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.top + h * 0.45f,
+            intArrayOf(Cores.alpha(Cores.BRANCO, 0.30f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
+        bisel.shader = android.graphics.LinearGradient(0f, b.bottom - h * 0.25f, 0f, b.bottom.toFloat(),
+            intArrayOf(0, Cores.alpha(Cores.OBSIDIAN, 0.85f)), null, t)
+        borda.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.left + w, b.bottom.toFloat(),
+            intArrayOf(Cores.alpha(acento, if (destaque) 0.9f else 0.55f), Cores.alpha(Cores.CIANO, 0.15f), Cores.alpha(Cores.MAGENTA, if (destaque) 0.5f else 0.25f)), null, t)
+        reflexo.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.left + w * 0.6f, b.top + h * 0.6f,
+            intArrayOf(Cores.alpha(Cores.BRANCO, 0.07f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
+        path.reset(); path.moveTo(b.left.toFloat(), b.top.toFloat()); path.lineTo(b.left + w * 0.55f, b.top.toFloat())
+        path.lineTo(b.left.toFloat(), b.top + h * 0.55f); path.close()
+        clip.reset(); clip.addRoundRect(b.left + d, b.top + d, b.right - d, b.bottom - d, raio, raio, android.graphics.Path.Direction.CW)
+    }
+
+    override fun draw(c: android.graphics.Canvas) {
+        val b = bounds
+        r.set(b.left + d, b.top + d, b.right - d, b.bottom - d)
+        c.drawRoundRect(r, raio, raio, corpo)
+        c.save(); c.clipPath(clip)
+        c.drawPath(path, reflexo)
+        c.restore()
+        c.drawRoundRect(r, raio, raio, bisel)
+        c.drawRoundRect(r, raio, raio, brilho)
+        c.drawRoundRect(r, raio, raio, borda)
+    }
+
+    override fun getOutline(outline: android.graphics.Outline) { outline.setRoundRect(bounds, raio); outline.alpha = 0.6f }
+    override fun setAlpha(alpha: Int) {}
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+}
+
+/** Fundo da tela: obsidian com brilhos neon suaves (violeta, ciano, magenta). Estático. */
+class FundoNeon : android.graphics.drawable.Drawable() {
+    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private var g1: android.graphics.Shader? = null
+    private var g2: android.graphics.Shader? = null
+    private var g3: android.graphics.Shader? = null
+    override fun onBoundsChange(b: android.graphics.Rect) {
+        val w = b.width().toFloat(); val h = b.height().toFloat(); val t = android.graphics.Shader.TileMode.CLAMP
+        g1 = android.graphics.RadialGradient(w * 0.1f, 0f, maxOf(w, h) * 0.6f, intArrayOf(Cores.alpha(Cores.VIOLETA, 0.22f), 0), null, t)
+        g2 = android.graphics.RadialGradient(w, h * 0.55f, maxOf(w, h) * 0.5f, intArrayOf(Cores.alpha(Cores.CIANO, 0.10f), 0), null, t)
+        g3 = android.graphics.RadialGradient(w * 0.4f, h, maxOf(w, h) * 0.5f, intArrayOf(Cores.alpha(Cores.MAGENTA, 0.09f), 0), null, t)
+    }
+    override fun draw(c: android.graphics.Canvas) {
+        c.drawColor(Cores.OBSIDIAN)
+        for (g in listOf(g1, g2, g3)) { p.shader = g; c.drawRect(bounds, p) }
+    }
+    override fun setAlpha(alpha: Int) {}
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.OPAQUE
 }

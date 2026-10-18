@@ -7,6 +7,7 @@ import android.widget.TextView
 import space.neural.luna.R
 import space.neural.luna.data.local.CategoriaGasto
 import space.neural.luna.data.local.EstadoTurno
+import space.neural.luna.data.local.MaquinaTurno
 import space.neural.luna.data.local.TipoMeta
 import java.time.LocalDate
 import java.time.LocalTime
@@ -15,9 +16,9 @@ import java.time.LocalTime
 interface AcoesPainel {
     fun iniciar(); fun pausar(); fun cafe(); fun retomar(); fun fecharTurno(); fun concluir(); fun corrigir(); fun zerar()
     fun diaEsquecido()
-    fun detalheDia(); fun detalheApp(app: String)
+    fun detalheDia(); fun detalheApp(app: String); fun abrirDia(data: String)
     fun lancarGanho(app: String?); fun lancarGasto(categoria: String?)
-    fun editarMeta(tipo: String, atual: Long?)
+    fun planejamento(); fun gastoEnvelope(e: Plano.Envelope)
     fun dispensarAlerta(chave: String)
     fun pararAgoraNao()
     fun atualizarNoticias(); fun abrirNoticia(n: Externo.Noticia); fun previsaoHoras()
@@ -26,10 +27,17 @@ interface AcoesPainel {
 }
 
 // ---------------- Cabeçalho ----------------
-class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel) {
+class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito: Boolean = false) {
     val view: LinearLayout = ui.hbox().apply { setPadding(0, 0, 0, ui.dp(4)) }
     private val saudacao = ui.text("", if (compacto) 18f else 22f, Cores.BRANCO, bold = true)
-    private val data = ui.text("", 14f, Cores.BRANCO_70)
+    private val data = ui.text("", 13f, Cores.BRANCO_70)
+    private val aoVivo = ui.text("● AO VIVO", 11f, Cores.MAGENTA, bold = true).apply {
+        setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3))
+        background = ui.fundo(Cores.alpha(Cores.MAGENTA, 0.15f), Cores.MAGENTA, 10f)
+        visibility = View.GONE
+        contentDescription = "Turno ao vivo"
+    }
+    private var pulso: android.animation.ValueAnimator? = null
     private val syncIc = ui.icone(R.drawable.ic_cloud, Cores.ESMERALDA, 18)
     private val syncTx = ui.text("", 12f, Cores.BRANCO_70)
     private val sync = ui.hbox().apply {
@@ -40,18 +48,21 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel) {
     }
 
     init {
-        val orb = LunaOrbView(ui.ctx).apply {
-            setOnClickListener { a.conversar() }
-            contentDescription = "Luna. Toque para conversar"
-        }
-        val tam = if (compacto) 52 else 76
-        view.addView(orb, LinearLayout.LayoutParams(ui.dp(tam), ui.dp(tam)))
+        val marca = ui.vbox().apply { gravity = Gravity.CENTER }
+        marca.addView(ui.text("LUNA", 12f, Cores.CIANO, bold = true).apply { letterSpacing = 0.3f })
+        marca.addView(ui.text("NEURAL SPACE", 8f, Cores.BRANCO_70).apply { letterSpacing = 0.15f })
+        if (!estreito) {
+            view.addView(marca)
+            view.addView(View(ui.ctx).apply { setBackgroundColor(Cores.alpha(Cores.BRANCO, 0.15f)) },
+                LinearLayout.LayoutParams(ui.dp(1), ui.dp(32)).apply { leftMargin = ui.dp(12) })
+        } else syncTx.visibility = View.GONE
+        ui.truncar(saudacao, 1); ui.truncar(data, 1)
         val textos = if (compacto) ui.hbox() else ui.vbox()
         textos.addView(saudacao)
         textos.addView(data, if (compacto) ui.wc(ui.dp(10)) else ui.mp())
-        view.addView(textos, ui.peso(1f, ui.dp(10)))
+        view.addView(textos, ui.peso(1f, if (estreito) 0 else ui.dp(12)))
+        view.addView(aoVivo, ui.wc(ui.dp(4)))
         view.addView(sync)
-        view.addView(ui.botaoIcone(R.drawable.ic_chat, "Conversar com a Luna", Cores.VIOLETA) { a.conversar() })
         view.addView(ui.botaoIcone(R.drawable.ic_more, "Mais opções: histórico, anotações, Teste Firebase, Atualização", Cores.BRANCO) { a.menu(it) })
     }
 
@@ -59,6 +70,14 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel) {
         val h = LocalTime.now().hour
         saudacao.text = (if (h < 12) "Bom dia" else if (h < 18) "Boa tarde" else "Boa noite") + ", Marlon"
         data.text = Fmt.dataCurta(p.hoje)
+        val vivo = p.turno?.estado == EstadoTurno.ATIVO
+        aoVivo.visibility = if (vivo) View.VISIBLE else View.GONE
+        if (vivo && pulso == null && Anima.ligadas()) {
+            pulso = android.animation.ValueAnimator.ofFloat(1f, 0.45f).apply {
+                duration = 900; repeatMode = android.animation.ValueAnimator.REVERSE; repeatCount = android.animation.ValueAnimator.INFINITE
+                addUpdateListener { aoVivo.alpha = it.animatedValue as Float }; start()
+            }
+        } else if (!vivo) { pulso?.cancel(); pulso = null; aoVivo.alpha = 1f }
         val (ic, cor, tx) = when {
             !nuvem -> Triple(R.drawable.ic_cloud_off, Cores.BRANCO_70, "Só no aparelho")
             !online -> Triple(R.drawable.ic_cloud_off, Cores.CIANO, "ⓘ Offline")
@@ -71,68 +90,115 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel) {
     }
 }
 
-// ---------------- Turno (componente 4) ----------------
-class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: AcoesPainel) {
+// ---------------- Turno (componente 4) com a orb 3D da Luna ----------------
+class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: AcoesPainel, orbDp: Int = 200) {
     val view = ui.card(destaque = true)
+    private val orb = LunaOrbView(ui.ctx).apply {
+        contentDescription = "Luna. Toque para conversar"
+        setOnClickListener { a.conversar() }
+    }
     private val selo = ui.selo("", Cores.CIANO).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
-    private val contador = TextoAjustavel(ui.ctx, if (largo) 40f else 44f, 22f).apply {
-        text = "00:00:00"; setTextColor(Cores.BRANCO_40)
+    private val contador = TextoAjustavel(ui.ctx, 44f, 22f).apply {
+        text = "00:00:00"; setTextColor(Cores.BRANCO_40); gravity = Gravity.CENTER
         typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        setShadowLayer(18f, 0f, 0f, Cores.alpha(Cores.CIANO, 0.7f))
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
-    private val parado = ui.text("", 14f, Cores.BRANCO_70)
+    private val parado = ui.text("", 14f, Cores.BRANCO_70).apply { gravity = Gravity.CENTER }
     private val botoes = ui.hbox()
     private var estadoDesenhado: String? = "inicial"
     private var turno: space.neural.luna.data.local.Turno? = null
+    private var fase = MaquinaTurno.Fase.PRONTO
+    private val titulo = ui.titulo("Turno 1/4")
 
     init {
         val topo = ui.hbox()
-        topo.addView(ui.tituloIcone(R.drawable.ic_timer, "Turno"), ui.peso(1f))
+        topo.addView(ui.icone(R.drawable.ic_timer, Cores.CIANO, 18))
+        topo.addView(titulo, ui.peso(1f, ui.dp(8)))
         topo.addView(selo)
         view.addView(topo, ui.mp())
+        val legenda = ui.text("TEMPO DE TRABALHO", 11f, Cores.BRANCO_70).apply { gravity = Gravity.CENTER; letterSpacing = 0.15f }
         if (largo) {
             val linha = ui.hbox()
-            linha.addView(contador)
-            linha.addView(parado, ui.wc(ui.dp(16)))
-            view.addView(linha, ui.mp(ui.dp(8)))
+            linha.addView(orb, LinearLayout.LayoutParams(ui.dp(orbDp), ui.dp(orbDp)))
+            val dir = ui.vbox().apply { gravity = Gravity.CENTER }
+            dir.addView(legenda, ui.mp()); dir.addView(contador, ui.mp()); dir.addView(parado, ui.mp())
+            dir.addView(botoes, ui.mp(ui.dp(12)))
+            linha.addView(dir, ui.peso(1f, ui.dp(12)))
+            view.addView(linha, ui.mp(ui.dp(4)))
         } else {
-            view.addView(contador, ui.mp(ui.dp(6)).apply { })
-            contador.gravity = Gravity.CENTER
-            parado.gravity = Gravity.CENTER
-            view.addView(parado, ui.mp())
+            view.addView(orb, LinearLayout.LayoutParams(-1, ui.dp(orbDp)))
+            view.addView(legenda, ui.mp()); view.addView(contador, ui.mp()); view.addView(parado, ui.mp())
+            view.addView(botoes, ui.mp(ui.dp(12)))
         }
-        view.addView(botoes, ui.mp(ui.dp(12)))
     }
 
-    fun bind(t: space.neural.luna.data.local.Turno?) {
-        turno = t
-        val est = t?.estado ?: "SEM"
-        if (est != estadoDesenhado) {
-            estadoDesenhado = est
+    fun bind(sit: MaquinaTurno.Situacao) {
+        val t = sit.turno
+        turno = t?.takeIf { sit.fase != MaquinaTurno.Fase.CONCLUIDO && sit.fase != MaquinaTurno.Fase.PRONTO || it.estado == EstadoTurno.PRONTO }
+        fase = sit.fase
+        orb.ativa = sit.fase == MaquinaTurno.Fase.ATIVO
+        val chave = "${sit.fase}-${sit.numero}-${sit.anterior?.id}"
+        if (chave != estadoDesenhado) {
+            estadoDesenhado = chave
+            titulo.text = if (sit.fase == MaquinaTurno.Fase.CONCLUIDO) "DIA CONCLUÍDO" else "TURNO ${sit.numero}/${MaquinaTurno.TOTAL}"
             botoes.removeAllViews()
-            fun princ(txt: String, ic: Int, f: () -> Unit) =
-                botoes.addView(ui.comIcone(ui.botao(txt, Ui.Estilo.CHEIO_VIOLETA, alto = true) { f() }, ic), ui.peso(1.4f))
-            fun sec(txt: String, ic: Int?, desc: String = txt, f: () -> Unit) {
-                val b = ui.botao(txt) { f() }.apply { contentDescription = desc }
+            botoes.orientation = LinearLayout.VERTICAL
+            val linhas = List(3) { ui.hbox() }
+            linhas.forEachIndexed { i, l -> botoes.addView(l, ui.mp(if (i == 0) 0 else ui.dp(8))) }
+            fun princ(txt: String, ic: Int, desc: String = txt, f: () -> Unit) =
+                linhas[0].addView(ui.comIcone(ui.botao(txt, Ui.Estilo.CHEIO_VIOLETA, alto = true) { f() }.apply { contentDescription = desc }, ic), ui.peso(1f))
+            fun sec(l: Int, txt: String, ic: Int?, desc: String = txt, estilo: Ui.Estilo = Ui.Estilo.CONTORNO, f: () -> Unit) {
+                val b = ui.botao(txt, estilo) { f() }.apply { contentDescription = desc }
                 if (ic != null) ui.comIcone(b, ic)
-                botoes.addView(b, ui.peso(1f, ui.dp(8)))
+                linhas[l].addView(b, ui.peso(1f, if (linhas[l].childCount == 0) 0 else ui.dp(8)))
             }
-            when (est) {
-                "SEM" -> { princ("Iniciar turno", R.drawable.ic_play) { a.iniciar() }; sec("Calendário", R.drawable.ic_calendar, "Calendário: lançar dia esquecido") { a.diaEsquecido() } }
-                EstadoTurno.ATIVO -> { princ("Pausar", R.drawable.ic_pause) { a.pausar() }; sec("Café", R.drawable.ic_coffee) { a.cafe() }; sec("Fechar", R.drawable.ic_stop, "Fechar turno") { a.fecharTurno() } }
-                EstadoTurno.PAUSADO -> { princ("Retomar", R.drawable.ic_play) { a.retomar() }; sec("Café", R.drawable.ic_coffee) { a.cafe() }; sec("Fechar", R.drawable.ic_stop, "Fechar turno") { a.fecharTurno() } }
-                EstadoTurno.CAFE -> { princ("Retomar", R.drawable.ic_play) { a.retomar() }; sec("Fechar", R.drawable.ic_stop, "Fechar turno") { a.fecharTurno() } }
-                EstadoTurno.FECHADO -> { princ("Concluir dia", R.drawable.ic_check) { a.concluir() }; sec("Corrigir", null) { a.corrigir() }; sec("Zerar", null) { a.zerar() } }
+            val n = sit.numero
+            val zerarTxt = "Zerar tempo"
+            when (sit.fase) {
+                MaquinaTurno.Fase.PRONTO -> {
+                    princ("Iniciar turno $n", R.drawable.ic_play) { a.iniciar() }
+                    if (sit.anterior != null) sec(1, "Corrigir turno ${sit.anterior.numero}", R.drawable.ic_wrench) { a.corrigir() }
+                    else sec(1, "Calendário", R.drawable.ic_calendar, "Calendário: lançar dia esquecido") { a.diaEsquecido() }
+                    if (n > 1) sec(2, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                }
+                MaquinaTurno.Fase.ATIVO -> {
+                    princ("Pausar", R.drawable.ic_pause) { a.pausar() }
+                    sec(1, "Café", R.drawable.ic_coffee) { a.cafe() }
+                    sec(1, "Fechar turno", R.drawable.ic_stop, "Fechar turno $n") { a.fecharTurno() }
+                    sec(2, zerarTxt, R.drawable.ic_refresh, "Zerar tempo do turno $n") { a.zerar() }
+                    sec(2, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                }
+                MaquinaTurno.Fase.PAUSADO, MaquinaTurno.Fase.CAFE -> {
+                    princ("Retomar", R.drawable.ic_play) { a.retomar() }
+                    if (sit.fase == MaquinaTurno.Fase.PAUSADO) sec(1, "Café", R.drawable.ic_coffee) { a.cafe() }
+                    sec(1, "Fechar turno", R.drawable.ic_stop, "Fechar turno $n") { a.fecharTurno() }
+                    sec(2, zerarTxt, R.drawable.ic_refresh, "Zerar tempo do turno $n") { a.zerar() }
+                    sec(2, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                }
+                MaquinaTurno.Fase.ULTIMO_FECHADO -> {
+                    princ("Retomar turno 4", R.drawable.ic_play, "Retomar: continua no turno 4") { a.retomar() }
+                    sec(1, "Concluir dia", R.drawable.ic_check, estilo = Ui.Estilo.CHEIO_ESMERALDA) { a.concluir() }
+                    sec(1, "Corrigir", R.drawable.ic_wrench, "Corrigir turno 4") { a.corrigir() }
+                }
+                MaquinaTurno.Fase.CONCLUIDO -> {
+                    sec(1, "Reabrir dia", R.drawable.ic_play, "Reabrir dia: continua no turno ${sit.numero}") { a.retomar() }
+                    sec(1, "Calendário", R.drawable.ic_calendar, "Calendário: lançar dia esquecido") { a.diaEsquecido() }
+                }
             }
-            val (s, cor) = when (est) {
-                EstadoTurno.ATIVO -> "● Trabalhando" to Cores.CIANO
-                EstadoTurno.PAUSADO -> "⏸ Pausado" to Cores.CIANO
-                EstadoTurno.CAFE -> "☕ Café" to Cores.CIANO
-                EstadoTurno.FECHADO -> "■ Turno fechado" to Cores.VIOLETA
-                else -> "Sem turno" to Cores.BRANCO_70
+            linhas.filter { it.childCount == 0 }.forEach { botoes.removeView(it) }
+            if (botoes.childCount > 0) (botoes.getChildAt(0).layoutParams as LinearLayout.LayoutParams).topMargin = 0
+            val (s, cor) = when (sit.fase) {
+                MaquinaTurno.Fase.ATIVO -> "● Trabalhando" to Cores.CIANO
+                MaquinaTurno.Fase.PAUSADO -> "⏸ Pausado" to Cores.LARANJA
+                MaquinaTurno.Fase.CAFE -> "☕ Café" to Cores.LARANJA
+                MaquinaTurno.Fase.ULTIMO_FECHADO -> "■ Turno 4 fechado" to Cores.VIOLETA
+                MaquinaTurno.Fase.CONCLUIDO -> "✓ Concluído" to Cores.ESMERALDA
+                MaquinaTurno.Fase.PRONTO -> "Pronto para iniciar" to Cores.BRANCO_70
             }
             selo.text = s; selo.setTextColor(cor)
-            selo.background = ui.fundo(Cores.alpha(Cores.VIOLETA, 0.12f), Cores.alpha(cor, 0.6f), 12f)
+            selo.background = ui.fundo(Cores.alpha(cor, 0.12f), Cores.alpha(cor, 0.6f), 12f)
+            view.contentDescription = null
         }
         tick(System.currentTimeMillis())
     }
@@ -140,16 +206,18 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
     /** Chamado a cada segundo: só atualiza textos. */
     fun tick(agora: Long) {
         val t = turno
-        val trab = Calculos.trabalhoMs(t, agora)
-        contador.text = Fmt.hms(trab)
+        contador.text = Fmt.hms(Calculos.trabalhoMs(t, agora))
         contador.setTextColor(when (t?.estado) {
-            null -> Cores.BRANCO_40
+            null, EstadoTurno.PRONTO -> Cores.BRANCO_40
             EstadoTurno.ATIVO -> Cores.CIANO
             EstadoTurno.PAUSADO, EstadoTurno.CAFE -> Cores.alpha(Cores.CIANO, 0.6f)
             else -> Cores.BRANCO
         })
-        parado.text = if (t == null) "Pronto para começar?" else "Parado: ${Fmt.minutos(Calculos.paradoMs(t, agora))} min"
-        view.contentDescription = null
+        parado.text = when {
+            fase == MaquinaTurno.Fase.CONCLUIDO -> "Bom descanso, Marlon. 💜"
+            t == null || t.estado == EstadoTurno.PRONTO -> "Pronto para iniciar"
+            else -> "Parado: ${Fmt.minutos(Calculos.paradoMs(t, agora))} min"
+        }
     }
 }
 
@@ -219,7 +287,7 @@ class ResumoCard(private val ui: Ui, private val a: AcoesPainel) {
         }
         faixa.removeAllViews()
         if (sugerirParar) {
-            val ph = Calculos.porHoraCentavos(r.liquidoCentavos, Calculos.trabalhoMs(p.turno, agora)) ?: 0
+            val ph = Calculos.porHoraCentavos(r.liquidoCentavos, p.trabalhoDia(agora)) ?: 0
             val f = ui.vbox(ui.dp(12)).apply { background = ui.fundo(Cores.alpha(Cores.CIANO, 0.10f), Cores.alpha(Cores.CIANO, 0.6f), 14f) }
             f.addView(ui.hbox().apply {
                 addView(ui.icone(R.drawable.ic_info, Cores.CIANO, 18))
@@ -236,14 +304,14 @@ class ResumoCard(private val ui: Ui, private val a: AcoesPainel) {
     private var painelAtual: Painel? = null
     fun tick(p: Painel, agora: Long) {
         painelAtual = p
-        val ph = Calculos.porHoraCentavos(liqAtual, Calculos.trabalhoMs(p.turno, agora))
+        val ph = Calculos.porHoraCentavos(liqAtual, p.trabalhoDia(agora))
         porHora.text = if (ph != null) "Ganho por hora: ${Fmt.reais(ph)}/h" else "Ganho por hora aparece após 15 min de turno"
     }
 }
 
 // ---------------- Metas (componente 2) ----------------
 class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
-    val view = ui.card()
+    val view = ui.card(acento = Cores.ESMERALDA)
     private val linha = ui.hbox().apply { gravity = Gravity.TOP }
     private val alerta = ui.vbox()
     private val aneis = mutableMapOf<String, MetaRing>()
@@ -252,12 +320,17 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
     private val colunas = mutableMapOf<String, LinearLayout>()
 
     init {
-        view.addView(ui.tituloIcone(R.drawable.ic_flag, "Metas", Cores.ESMERALDA))
-        view.addView(linha, ui.mp(ui.dp(10)))
+        val topo = ui.hbox()
+        topo.addView(ui.tituloIcone(R.drawable.ic_flag, "Metas", Cores.ESMERALDA), ui.peso(1f))
+        topo.addView(ui.botao("Planejamento", Ui.Estilo.TEXTO) { a.planejamento() }.apply {
+            contentDescription = "Abrir o planejamento, onde as metas são calculadas"
+        })
+        view.addView(topo, ui.mp())
+        view.addView(linha, ui.mp(ui.dp(6)))
         view.addView(alerta, ui.mp())
         listOf(TipoMeta.DIA to "Dia", TipoMeta.SEMANA to "Semana", TipoMeta.MES to "Mês").forEachIndexed { i, (tipo, nome) ->
             val col = ui.vbox().apply {
-                gravity = Gravity.CENTER_HORIZONTAL; isClickable = true; isFocusable = true
+                gravity = Gravity.CENTER_HORIZONTAL; isFocusable = true
                 minimumHeight = ui.dp(48)
             }
             col.addView(ui.text(nome, 14f, Cores.BRANCO, bold = true))
@@ -276,12 +349,11 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
     fun bind(p: Painel, alertaAtual: Triple<String, String, Int>?) {
         p.metas.forEach { m ->
             val ring = aneis[m.tipo]!!; val t = textos[m.tipo]!!; val t2 = textos2[m.tipo]!!; val col = colunas[m.tipo]!!
-            col.setOnClickListener { a.editarMeta(m.tipo, m.metaCentavos) }
             if (m.metaCentavos == null) {
                 ring.visibility = View.GONE
-                t.text = "Defina sua meta"; t.setTextColor(Cores.VIOLETA)
-                t2.text = "＋ Definir meta"; t2.setTextColor(Cores.VIOLETA)
-                col.contentDescription = "Meta ${nome(m.tipo)} não definida. Toque para definir"
+                t.text = "Sem meta"; t.setTextColor(Cores.BRANCO_70)
+                t2.text = "vem do Planejamento"; t2.setTextColor(Cores.BRANCO_40)
+                col.contentDescription = "Meta ${nome(m.tipo)} não definida. Ela é calculada no Planejamento"
             } else {
                 ring.visibility = View.VISIBLE; ring.definir(m.percentual)
                 t.setTextColor(Cores.BRANCO_70); t2.setTextColor(if (m.percentual >= 100) Cores.ESMERALDA else Cores.BRANCO_70)
@@ -289,7 +361,7 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
                 t2.text = if (m.percentual >= 100) "+${Fmt.reaisCurto(m.acimaCentavos)} acima" else "faltam ${Fmt.reaisCurto(m.faltaCentavos)}"
                 col.contentDescription = "Meta ${nome(m.tipo)}: ${m.percentual} por cento. " +
                     (if (m.percentual >= 100) "Batida, ${Fmt.reais(m.acimaCentavos)} acima." else "Faltam ${Fmt.reais(m.faltaCentavos)}.") +
-                    " Bruto ${Fmt.reais(m.brutoCentavos)}. Toque para editar"
+                    " Bruto ${Fmt.reais(m.brutoCentavos)}."
             }
         }
         alerta.removeAllViews()
@@ -312,93 +384,9 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
     private fun nome(t: String) = when (t) { TipoMeta.SEMANA -> "da semana"; TipoMeta.MES -> "do mês"; else -> "do dia" }
 }
 
-// ---------------- Ganhos por app (componente 3) + gráfico de 7 dias ----------------
-class AppsCard(private val ui: Ui, private val horizontal: Boolean, private val a: AcoesPainel) {
-    val view = ui.card()
-    private val blocos = if (horizontal) ui.hbox() else ui.vbox()
-    private val valores = mutableMapOf<String, TextView>()
-    private val corridas = mutableMapOf<String, TextView>()
-    private val barras = mutableMapOf<String, MetaBarFina>()
-    private val caixas = mutableMapOf<String, LinearLayout>()
-    private val ult = mutableMapOf<String, Long>()
-    private val grafico = GanhosChart(ui.ctx)
-
-    init {
-        view.addView(ui.tituloIcone(R.drawable.ic_car, "Ganhos por app"))
-        view.addView(blocos, ui.mp(ui.dp(10)))
-        Calculos.APPS.forEachIndexed { i, app ->
-            val caixa = ui.vbox(ui.dp(12)).apply { isClickable = true; isFocusable = true; setOnClickListener { a.detalheApp(app) } }
-            val nomeV = ui.ajustavel(Fmt.nomeApp(app), 15f, 11f, GanhosChart.corApp(app))
-            val mais = ui.botaoIcone(R.drawable.ic_add, "Lançar ganho no ${Fmt.nomeApp(app)}", Cores.BRANCO) { a.lancarGanho(app) }
-            val v = ui.ajustavel("R$ 0,00", if (horizontal) 20f else 18f, 12f); valores[app] = v
-            val c = ui.ajustavel("0 corridas", 13f, 10f, Cores.BRANCO_70, bold = false); corridas[app] = c
-            val b = MetaBarFina(ui.ctx); barras[app] = b
-            if (horizontal) {
-                caixa.addView(ui.hbox().apply { addView(nomeV, ui.peso(1f)); addView(mais) })
-                caixa.addView(v); caixa.addView(c)
-            } else {
-                caixa.setPadding(ui.dp(12), ui.dp(2), ui.dp(4), ui.dp(8))
-                caixa.addView(ui.hbox().apply {
-                    addView(nomeV, LinearLayout.LayoutParams(ui.dp(64), -2))
-                    addView(v, ui.peso(1f)); addView(c, ui.wc(ui.dp(6))); addView(mais)
-                })
-            }
-            caixa.addView(b, ui.mp(ui.dp(6)))
-            caixas[app] = caixa
-            blocos.addView(caixa, if (horizontal) ui.peso(1f, if (i == 0) 0 else ui.dp(8)) else ui.mp(if (i == 0) 0 else ui.dp(8)))
-        }
-        view.addView(ui.text("Últimos 7 dias", 13f, Cores.BRANCO_70), ui.mp(ui.dp(14)))
-        view.addView(grafico, ui.mp(ui.dp(6)))
-        val leg = ui.hbox()
-        Calculos.APPS.forEach { app ->
-            leg.addView(View(ui.ctx).apply { background = ui.fundo(GanhosChart.corApp(app), raio = 3f) }, LinearLayout.LayoutParams(ui.dp(10), ui.dp(10)).apply { leftMargin = ui.dp(10) })
-            leg.addView(ui.text(Fmt.nomeApp(app), 12f, Cores.BRANCO_70), ui.wc(ui.dp(4)))
-        }
-        view.addView(leg, ui.mp(ui.dp(4)))
-    }
-
-    fun bind(p: Painel) {
-        val melhor = p.porApp.filter { it.centavos > 0 }.maxByOrNull { it.centavos }?.app
-        p.porApp.forEach { x ->
-            val v = valores[x.app]!!
-            Anima.contar(v, ult[x.app] ?: 0, x.centavos, Fmt::reais); ult[x.app] = x.centavos
-            v.setTextColor(if (x.centavos > 0) Cores.BRANCO else Cores.BRANCO_70)
-            corridas[x.app]!!.text = "${x.corridas} ${if (x.corridas == 1) "corrida" else "corridas"} · ${x.participacao}%"
-            barras[x.app]!!.definir(x.participacao)
-            caixas[x.app]!!.background = ui.fundo(Cores.alpha(Cores.VIOLETA, 0.06f),
-                if (x.app == melhor) Cores.VIOLETA else Cores.alpha(Cores.BRANCO, 0.10f), 14f, if (x.app == melhor) 2 else 1)
-            caixas[x.app]!!.contentDescription = "${Fmt.nomeApp(x.app)}: ${Fmt.reais(x.centavos)}, ${x.corridas} corridas, ${x.participacao} por cento do bruto" +
-                (if (x.app == melhor) ". O que mais rendeu" else "") + ". Toque para ver as corridas"
-        }
-        grafico.definir(p.semana, "Gráfico dos últimos 7 dias: " + p.semana.joinToString("; ") { "${it.rotulo} ${Fmt.reais(it.porApp.values.sum())}" })
-    }
-}
-
-/** Barra fina de participação (violeta), animada. */
-class MetaBarFina(ctx: android.content.Context) : View(ctx) {
-    private val d = ctx.resources.displayMetrics.density
-    private var mostrado = 0f
-    private val pT = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Cores.alpha(Cores.BRANCO, 0.15f) }
-    private val pF = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Cores.VIOLETA }
-    private val r = android.graphics.RectF()
-    init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
-    fun definir(p: Int) {
-        if (!Anima.ligadas()) { mostrado = p.toFloat(); invalidate(); return }
-        android.animation.ValueAnimator.ofFloat(mostrado, p.toFloat()).apply {
-            duration = 700; addUpdateListener { mostrado = it.animatedValue as Float; invalidate() }; start()
-        }
-    }
-    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(getDefaultSize(suggestedMinimumWidth, w), (8 * d).toInt())
-    override fun onDraw(c: android.graphics.Canvas) {
-        val rad = height / 2f
-        r.set(0f, 0f, width.toFloat(), height.toFloat()); c.drawRoundRect(r, rad, rad, pT)
-        if (mostrado > 0) { r.set(0f, 0f, width * mostrado.coerceIn(0f, 100f) / 100f, height.toFloat()); c.drawRoundRect(r, rad, rad, pF) }
-    }
-}
-
 // ---------------- Notícias e clima (componente 5) ----------------
 class NoticiasCard(private val ui: Ui, private val lado: Boolean, private val a: AcoesPainel) {
-    val view = ui.card()
+    val view = ui.card(acento = Cores.CIANO)
     private val corpo = if (lado) ui.hbox().apply { gravity = Gravity.TOP } else ui.vbox()
     private val clima = ui.vbox().apply { isClickable = true; isFocusable = true; setOnClickListener { a.previsaoHoras() } }
     private val lista = ui.vbox()
@@ -483,5 +471,316 @@ class DicaCard(private val ui: Ui, private val a: AcoesPainel) {
         dica.text = Conteudo.dica(hoje)
         val v = Conteudo.versiculo(hoje)
         vers.text = "“${v.texto}”"; ref.text = v.referencia
+    }
+}
+
+// ---------------- KPIs do período ----------------
+class KpiStrip(private val ui: Ui, colunas: Int) {
+    val view: LinearLayout = ui.vbox()
+    private inner class Kpi(val titulo: String, icone: Int, val cor: Int) {
+        val card = ui.card(acento = cor, colorido = true).apply { setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)) }
+        val valor = ui.ajustavel("—", 24f, 13f)
+        val sub = ui.ajustavel("", 12f, 9f, Cores.BRANCO_70, bold = false)
+        val pil = android.widget.FrameLayout(ui.ctx).apply { minimumHeight = ui.dp(24) }
+        var ult = 0L
+        init {
+            card.addView(ui.hbox().apply {
+                addView(ui.icone(icone, cor, 16))
+                addView(ui.ajustavel(titulo.uppercase(), 11f, 8f, Cores.BRANCO_70).apply { letterSpacing = 0.08f }, ui.peso(1f, ui.dp(6)))
+            })
+            card.addView(valor, ui.mp(ui.dp(6)))
+            card.addView(pil, ui.mp(ui.dp(4)))
+            card.addView(sub, ui.mp(ui.dp(4)))
+        }
+    }
+    private val liq = Kpi("Total líquido", R.drawable.ic_wallet, Cores.ESMERALDA)
+    private val corr = Kpi("Corridas", R.drawable.ic_car, Cores.CIANO)
+    private val hora = Kpi("Ganho/hora", R.drawable.ic_timer, Cores.MAGENTA)
+    private val meta = Kpi("Meta", R.drawable.ic_flag, Cores.LARANJA)
+
+    init {
+        val todos = listOf(liq, corr, hora, meta)
+        if (colunas >= 4) {
+            view.addView(ui.hbox().apply { gravity = Gravity.TOP; todos.forEachIndexed { i, k -> addView(k.card, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else ui.dp(12) }) } }, ui.mp())
+        } else {
+            todos.chunked(2).forEachIndexed { r, par ->
+                view.addView(ui.hbox().apply { gravity = Gravity.TOP; par.forEachIndexed { i, k -> addView(k.card, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else ui.dp(12) }) } }, ui.mp(if (r == 0) 0 else ui.dp(12)))
+            }
+        }
+    }
+
+    private fun pilula(k: Kpi, v: Double?, suf: String) {
+        k.pil.removeAllViews(); k.pil.addView(ui.pilula(v, suf), android.widget.FrameLayout.LayoutParams(-2, -2))
+    }
+
+    fun bind(e: Estatisticas) {
+        val suf = e.periodo.comparacao
+        Anima.contar(liq.valor, liq.ult, e.liquidoCentavos, Fmt::reais); liq.ult = e.liquidoCentavos
+        liq.valor.setTextColor(if (e.liquidoCentavos >= 0) Cores.ESMERALDA else Cores.CORAL)
+        pilula(liq, e.variacao(e.liquidoCentavos, e.liquidoAnterior), suf)
+        liq.sub.text = "Bruto ${Fmt.reais(e.brutoCentavos)}"
+        liq.card.contentDescription = "Total líquido ${e.periodo.rotulo}: ${Fmt.reais(e.liquidoCentavos)}"
+
+        Anima.contar(corr.valor, corr.ult, e.corridas.toLong(), { it.toString() }); corr.ult = e.corridas.toLong()
+        pilula(corr, e.variacao(e.corridas.toLong(), e.corridasAnterior.toLong()), suf)
+        corr.sub.text = "Média ${if (e.corridas > 0) Fmt.reais(e.brutoCentavos / e.corridas) else "R$ 0,00"} por corrida"
+        corr.card.contentDescription = "Corridas: ${e.corridas}"
+
+        val ph = e.porHora
+        if (ph != null) { Anima.contar(hora.valor, hora.ult, ph, { Fmt.reais(it) + "/h" }); hora.ult = ph } else hora.valor.text = "—"
+        if (ph != null) pilula(hora, e.porHoraAnterior?.let { e.variacao(ph, it) }, suf) else hora.pil.removeAllViews()
+        hora.sub.text = "Trabalho ${Fmt.hms(e.trabalhoMs).substring(0, 5)} h"
+        hora.card.contentDescription = "Ganho por hora: " + (ph?.let { Fmt.reais(it) } ?: "sem dados")
+
+        val m = e.meta
+        val nomeMeta = when (m.tipo) { space.neural.luna.data.local.TipoMeta.SEMANA -> "da semana"; space.neural.luna.data.local.TipoMeta.MES -> "do mês"; else -> "do dia" }
+        if (m.metaCentavos == null) { meta.valor.text = "—"; meta.sub.text = "Defina no Planejamento"; meta.pil.removeAllViews() }
+        else {
+            Anima.contar(meta.valor, meta.ult, m.percentual.toLong(), { "$it%" }); meta.ult = m.percentual.toLong()
+            meta.sub.text = if (m.percentual >= 100) "Batida! +${Fmt.reaisCurto(m.acimaCentavos)}" else "Faltam ${Fmt.reaisCurto(m.faltaCentavos)} ($nomeMeta)"
+            meta.pil.removeAllViews()
+            meta.pil.addView(ui.text(if (m.percentual >= 100) "✓ META BATIDA" else "de ${Fmt.reaisCurto(m.metaCentavos)}", 11f,
+                if (m.percentual >= 100) Cores.ESMERALDA else Cores.LARANJA, bold = true).apply {
+                setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3))
+                background = ui.fundo(Cores.alpha(Cores.LARANJA, 0.12f), Cores.alpha(Cores.LARANJA, 0.5f), 10f)
+            }, android.widget.FrameLayout.LayoutParams(-2, -2))
+        }
+        meta.card.contentDescription = "Meta $nomeMeta: ${m.percentual} por cento"
+    }
+}
+
+/** Seletor Hoje / Semana / Mês / Ano. */
+class SeletorPeriodo(private val ui: Ui, private val aoMudar: (Periodo) -> Unit) {
+    val view: LinearLayout = ui.hbox().apply {
+        setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
+        background = ui.fundo(Cores.alpha(Cores.VIOLETA, 0.10f), Cores.alpha(Cores.VIOLETA, 0.4f), 26f)
+    }
+    private val bts = Periodo.entries.associateWith { p ->
+        ui.botao(p.rotulo, Ui.Estilo.TEXTO) { aoMudar(p) }.also { view.addView(it, ui.peso(1f)) }
+    }
+    fun bind(sel: Periodo) {
+        bts.forEach { (p, b) ->
+            val on = p == sel
+            b.background = if (on) android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Cores.VIOLETA, Cores.mix(Cores.VIOLETA, Cores.MAGENTA, 0.5f)),
+            ).apply { cornerRadius = ui.dpf(22f) } else null
+            b.setTextColor(if (on) Cores.OBSIDIAN else Cores.BRANCO_70)
+            b.contentDescription = "Período: ${p.rotulo}" + if (on) ", selecionado" else ""
+        }
+    }
+}
+
+/** Líquido do período (área) + bruto por app (barras 3D). */
+class GraficoCard(private val ui: Ui) {
+    val view = ui.card(acento = Cores.CIANO)
+    private val titulo = ui.titulo("Líquido")
+    private val total = ui.ajustavel("R$ 0,00", 26f, 16f)
+    private val pil = android.widget.FrameLayout(ui.ctx)
+    private val area = AreaGlow(ui.ctx)
+    private val barras = Barras3D(ui.ctx)
+    private var ult = 0L
+
+    init {
+        view.addView(ui.hbox().apply {
+            addView(ui.icone(R.drawable.ic_trending, Cores.CIANO, 18)); addView(titulo, ui.peso(1f, ui.dp(8)))
+            addView(pil)
+        })
+        view.addView(total, ui.mp(ui.dp(4)))
+        view.addView(area, ui.mp(ui.dp(8)))
+        view.addView(ui.divisor())
+        view.addView(ui.text("BRUTO POR APP", 11f, Cores.BRANCO_70, bold = true).apply { letterSpacing = 0.1f })
+        view.addView(barras, ui.mp(ui.dp(6)))
+        Calculos.APPS.chunked(3).forEach { grupo ->
+            val leg = ui.hbox()
+            grupo.forEach { app ->
+                leg.addView(View(ui.ctx).apply { background = ui.fundo(CoresSerie.app(app), raio = 3f) }, LinearLayout.LayoutParams(ui.dp(10), ui.dp(10)).apply { leftMargin = ui.dp(10) })
+                leg.addView(ui.text(Fmt.nomeApp(app), 12f, Cores.BRANCO_70), ui.wc(ui.dp(4)))
+            }
+            view.addView(leg, ui.mp(ui.dp(2)))
+        }
+    }
+
+    fun bind(e: Estatisticas) {
+        titulo.text = "LÍQUIDO — ${when (e.periodo) { Periodo.HOJE -> "ÚLTIMOS 7 DIAS"; Periodo.SEMANA -> "ESTA SEMANA"; Periodo.MES -> "ESTE MÊS"; Periodo.ANO -> "ESTE ANO" }}"
+        Anima.contar(total, ult, e.liquidoCentavos, Fmt::reais); ult = e.liquidoCentavos
+        total.setTextColor(if (e.liquidoCentavos >= 0) Cores.BRANCO else Cores.CORAL)
+        pil.removeAllViews(); pil.addView(ui.pilula(e.variacao(e.liquidoCentavos, e.liquidoAnterior), e.periodo.comparacao))
+        area.definir(e.serie, "Gráfico de líquido: " + e.serie.joinToString("; ") { "${it.rotulo} ${Fmt.reais(it.liquidoCentavos)}" })
+        barras.definir(e.serie, "Bruto por app: " + e.serie.joinToString("; ") { "${it.rotulo} ${Fmt.reais(it.porApp.values.sum())}" })
+    }
+}
+
+/** Roscas 3D: ganhos por app e gastos por categoria, com legenda em %. */
+class RoscasCard(private val ui: Ui) {
+    val view = ui.card(acento = Cores.MAGENTA)
+    private val dGanhos = Donut3D(ui.ctx)
+    private val dGastos = Donut3D(ui.ctx)
+    private val legG = ui.vbox(); private val legD = ui.vbox()
+
+    init {
+        view.addView(ui.hbox().apply {
+            addView(ui.icone(R.drawable.ic_wallet, Cores.MAGENTA, 18)); addView(ui.titulo("Divisão do período"), ui.wc(ui.dp(8)))
+        })
+        val l = ui.hbox().apply { gravity = Gravity.TOP }
+        l.addView(ui.vbox().apply { gravity = Gravity.CENTER_HORIZONTAL; addView(ui.text("Ganhos por app", 12f, Cores.BRANCO_70, bold = true)); addView(dGanhos, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) }); addView(legG, ui.mp(ui.dp(4))) }, ui.peso(1f))
+        l.addView(ui.vbox().apply { gravity = Gravity.CENTER_HORIZONTAL; addView(ui.text("Gastos", 12f, Cores.BRANCO_70, bold = true)); addView(dGastos, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) }); addView(legD, ui.mp(ui.dp(4))) }, ui.peso(1f, ui.dp(12)))
+        view.addView(l, ui.mp(ui.dp(10)))
+    }
+
+    private fun legenda(box: LinearLayout, itens: List<Triple<String, Long, Int>>) {
+        box.removeAllViews()
+        val tot = itens.sumOf { it.second }
+        itens.forEach { (n, v, cor) ->
+            box.addView(ui.hbox().apply {
+                addView(View(ui.ctx).apply { background = ui.fundo(cor, raio = 3f) }, LinearLayout.LayoutParams(ui.dp(10), ui.dp(10)))
+                addView(ui.ajustavel(n, 12f, 9f, Cores.BRANCO, bold = false), ui.peso(1f, ui.dp(6)))
+                addView(ui.text(if (tot > 0) "${v * 100 / tot}%" else "0%", 12f, cor, bold = true))
+            }, ui.mp(ui.dp(4)))
+        }
+    }
+
+    fun bind(e: Estatisticas) {
+        val g = e.porApp.map { Triple(Fmt.nomeApp(it.app), it.centavos, CoresSerie.app(it.app)) }
+        dGanhos.definir(g.map { Donut3D.Fatia(it.first, it.second, it.third) }, "BRUTO", Fmt.reaisCurto(e.brutoCentavos),
+            "Ganhos por app: " + g.joinToString("; ") { "${it.first} ${Fmt.reais(it.second)}" })
+        legenda(legG, g)
+        val d = e.gastosPorCategoria.filter { it.second > 0 }.map { Triple(when (it.first) { CategoriaGasto.ENERGIA -> "Energia"; CategoriaGasto.MANUTENCAO -> "Manutenção"; else -> "Outro" }, it.second, CoresSerie.categoria(it.first)) }
+        dGastos.definir(d.map { Donut3D.Fatia(it.first, it.second, it.third) }, "GASTOS", Fmt.reaisCurto(e.gastosCentavos),
+            "Gastos: " + d.joinToString("; ") { "${it.first} ${Fmt.reais(it.second)}" })
+        legenda(legD, d)
+    }
+}
+
+/** Ranking dos apps (componente 3): barras horizontais 3D, valor, corridas e "+" para lançar. */
+class RankingCard(private val ui: Ui, private val a: AcoesPainel) {
+    val view = ui.card(acento = Cores.LARANJA)
+    private val titulo = ui.titulo("Ranking dos apps")
+    private val linhas = ui.vbox()
+    private inner class Linha(val app: String) {
+        val box = ui.vbox().apply { isClickable = true; isFocusable = true; minimumHeight = ui.dp(48); setOnClickListener { a.detalheApp(app) } }
+        val pos = ui.text("", 13f, Cores.BRANCO_70, bold = true)
+        val valor = ui.ajustavel("R$ 0,00", 16f, 11f)
+        val info = ui.ajustavel("", 12f, 9f, Cores.BRANCO_70, bold = false)
+        val barra = BarraH3D(ui.ctx)
+        var ult = 0L
+        init {
+            box.addView(ui.hbox().apply {
+                addView(pos, LinearLayout.LayoutParams(ui.dp(24), -2))
+                addView(ui.seloApp(app, 24))
+                addView(ui.ajustavel(Fmt.nomeApp(app), 15f, 10f, CoresSerie.app(app)), LinearLayout.LayoutParams(ui.dp(72), -2).apply { leftMargin = ui.dp(6) })
+                addView(valor, ui.peso(1f, ui.dp(4)))
+                addView(info, ui.wc(ui.dp(6)))
+                addView(ui.botaoIcone(R.drawable.ic_add, "Lançar ganho no ${Fmt.nomeApp(app)}", Cores.BRANCO) { a.lancarGanho(app) })
+            })
+            box.addView(barra, ui.mp(ui.dp(2)))
+        }
+    }
+    private val mapa = Calculos.APPS.associateWith { Linha(it) }
+
+    init {
+        view.addView(ui.hbox().apply { addView(ui.icone(R.drawable.ic_car, Cores.LARANJA, 18)); addView(titulo, ui.peso(1f, ui.dp(8))) })
+        view.addView(linhas, ui.mp(ui.dp(8)))
+    }
+
+    fun bind(e: Estatisticas) {
+        titulo.text = "RANKING DOS APPS — ${e.periodo.rotulo.uppercase()}"
+        val ordem = e.porApp.sortedByDescending { it.centavos }
+        val max = ordem.firstOrNull()?.centavos?.coerceAtLeast(1) ?: 1
+        linhas.removeAllViews()
+        ordem.forEachIndexed { i, x ->
+            val l = mapa.getValue(x.app)
+            l.pos.text = "#${i + 1}"; l.pos.setTextColor(if (i == 0 && x.centavos > 0) Cores.LARANJA else Cores.BRANCO_70)
+            Anima.contar(l.valor, l.ult, x.centavos, Fmt::reais); l.ult = x.centavos
+            l.valor.setTextColor(if (x.centavos > 0) Cores.BRANCO else Cores.BRANCO_70)
+            l.info.text = "${x.corridas} corr. · ${x.participacao}%"
+            l.barra.definir(x.centavos.toFloat() / max, CoresSerie.app(x.app))
+            l.box.contentDescription = "${i + 1}º ${Fmt.nomeApp(x.app)}: ${Fmt.reais(x.centavos)}, ${x.corridas} corridas, ${x.participacao} por cento. Toque para ver as corridas"
+            linhas.addView(l.box, ui.mp(if (i == 0) 0 else ui.dp(8)))
+        }
+    }
+}
+
+/** Tabela "Últimos lançamentos" do período. */
+class LancamentosCard(private val ui: Ui, private val a: AcoesPainel) {
+    val view = ui.card()
+    private val tabela = ui.vbox()
+
+    init {
+        val topo = ui.hbox()
+        topo.addView(ui.icone(R.drawable.ic_news, Cores.VIOLETA, 18))
+        topo.addView(ui.titulo("Últimos lançamentos"), ui.peso(1f, ui.dp(8)))
+        topo.addView(ui.botao("Ver todos", Ui.Estilo.TEXTO) { a.detalheDia() })
+        view.addView(topo, ui.mp())
+        view.addView(tabela, ui.mp(ui.dp(4)))
+    }
+
+    fun bind(e: Estatisticas) {
+        tabela.removeAllViews()
+        val cab = ui.hbox()
+        listOf("DATA" to 0.8f, "TIPO" to 0.9f, "ORIGEM" to 1.3f, "VALOR" to 1.2f).forEach { (t, w) ->
+            cab.addView(ui.text(t, 10f, Cores.BRANCO_70, bold = true).apply { letterSpacing = 0.1f; if (t == "VALOR") gravity = Gravity.END }, ui.peso(w))
+        }
+        tabela.addView(cab, ui.mp(ui.dp(4)))
+        if (e.ultimos.isEmpty()) {
+            tabela.addView(ui.text("Nenhum lançamento neste período. Use o + no ranking ou o botão Gasto.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(10)))
+            return
+        }
+        e.ultimos.forEach { l ->
+            tabela.addView(ui.divisor().apply { (layoutParams as LinearLayout.LayoutParams).setMargins(0, ui.dp(6), 0, ui.dp(6)) })
+            val linha = ui.hbox().apply {
+                isClickable = true; isFocusable = true; minimumHeight = ui.dp(40)
+                setOnClickListener { a.abrirDia(l.data) }
+                contentDescription = "${if (l.ganho) "Ganho" else "Gasto"} ${l.nome}, ${Fmt.reais(Math.abs(l.centavos))}, dia ${l.data}. Toque para editar"
+            }
+            val dt = LocalDate.parse(l.data)
+            linha.addView(ui.text("%02d/%02d".format(dt.dayOfMonth, dt.monthValue), 13f, Cores.BRANCO_70), ui.peso(0.8f))
+            linha.addView(ui.text(if (l.ganho) "▲ Ganho" else "▼ Gasto", 12f, if (l.ganho) Cores.ESMERALDA else Cores.CORAL, bold = true), ui.peso(0.9f))
+            linha.addView(ui.ajustavel(l.nome, 13f, 9f, Cores.BRANCO, bold = false), ui.peso(1.3f))
+            linha.addView(ui.ajustavel((if (l.ganho) "+" else "−") + Fmt.reais(Math.abs(l.centavos)), 13f, 9f, if (l.ganho) Cores.ESMERALDA else Cores.CORAL).apply { gravity = Gravity.END }, ui.peso(1.2f))
+            tabela.addView(linha, ui.mp())
+        }
+    }
+}
+
+/** Envelopes do mês (contas com limite): gasto / limite, quanto ainda pode gastar, vermelho quando estoura. */
+class LimitesCard(private val ui: Ui, private val a: AcoesPainel) {
+    val view = ui.card(acento = Cores.LARANJA)
+    private val lista = ui.vbox()
+
+    init {
+        val topo = ui.hbox()
+        topo.addView(ui.icone(R.drawable.ic_wallet, Cores.LARANJA, 18))
+        topo.addView(ui.titulo("Limites do mês"), ui.peso(1f, ui.dp(8)))
+        topo.addView(ui.botao("Planejamento", Ui.Estilo.TEXTO) { a.planejamento() })
+        view.addView(topo, ui.mp())
+        view.addView(lista, ui.mp(ui.dp(4)))
+    }
+
+    fun bind(p: Painel) {
+        lista.removeAllViews()
+        val envs = p.envelopes()
+        if (envs.isEmpty()) {
+            lista.addView(ui.text("Nenhum limite ainda. Crie envelopes (ex.: Supermercado R$ 1.000) no Planejamento.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
+            return
+        }
+        envs.forEachIndexed { i, e ->
+            val cor = when { e.excedido -> Cores.CORAL; e.fracao >= 0.8f -> Cores.LARANJA; else -> Cores.ESMERALDA }
+            val box = ui.vbox().apply {
+                contentDescription = "${e.limite.nome}: gastou ${Fmt.reais(e.gastoCentavos)} de ${Fmt.reais(e.limite.limiteCentavos)}. " +
+                    (if (e.excedido) "Passou ${Fmt.reais(e.excessoCentavos)} do limite." else "Ainda pode gastar ${Fmt.reais(e.restanteCentavos)}.") + " Toque para lançar um gasto"
+                isFocusable = true; isClickable = true; minimumHeight = ui.dp(48)
+                setOnClickListener { a.gastoEnvelope(e) }
+            }
+            box.addView(ui.hbox().apply {
+                addView(ui.ajustavel(e.limite.nome, 15f, 11f, Cores.BRANCO), ui.peso(1f))
+                addView(ui.ajustavel("${Fmt.reaisCurto(e.gastoCentavos)} / ${Fmt.reaisCurto(e.limite.limiteCentavos)}", 14f, 10f, cor), ui.wc(ui.dp(8)))
+            })
+            box.addView(BarraH3D(ui.ctx).apply { definir(e.fracao.coerceIn(0f, 1f), cor) }, ui.mp(ui.dp(4)))
+            box.addView(ui.text(
+                if (e.excedido) "⚠ Passou ${Fmt.reais(e.excessoCentavos)} do limite" else "Ainda pode gastar ${Fmt.reais(e.restanteCentavos)}",
+                13f, if (e.excedido) Cores.CORAL else Cores.BRANCO_70, bold = e.excedido,
+            ), ui.mp(ui.dp(2)))
+            lista.addView(box, ui.mp(if (i == 0) ui.dp(4) else ui.dp(12)))
+        }
     }
 }

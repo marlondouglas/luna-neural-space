@@ -49,125 +49,74 @@ object Anima {
     private val TAG = "contador".hashCode()
 }
 
-/** Anel de progresso de meta: trilho branco gelo 15%, arco esmeralda animado, brilho violeta ≥ 80%. */
+/** Anel 3D de meta: espessura sombreada, arco em degradê esmeralda→ciano animado, brilho neon ≥ 80%. */
 class MetaRing(ctx: Context) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
     private var mostrado = 0f
-    private var alvo = 0
+    private var alvo = -1
     private var anim: ValueAnimator? = null
-    private val trilho = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; color = Cores.alpha(Cores.BRANCO, 0.15f); strokeWidth = 8 * d
-    }
-    private val arco = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; color = Cores.ESMERALDA; strokeWidth = 8 * d; strokeCap = Paint.Cap.ROUND
-    }
-    private val brilho = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; color = Cores.alpha(Cores.VIOLETA, 0.35f); strokeWidth = 14 * d
-    }
-    private val texto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Cores.BRANCO; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
-    }
+    private val trilho = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 10 * d }
+    private val sombra = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 10 * d; strokeCap = Paint.Cap.ROUND; color = Cores.mix(Cores.ESMERALDA, Cores.OBSIDIAN, 0.6f) }
+    private val arco = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 10 * d; strokeCap = Paint.Cap.ROUND }
+    private val luz = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * d; strokeCap = Paint.Cap.ROUND; color = Cores.alpha(Cores.BRANCO, 0.45f) }
+    private val brilho = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 18 * d }
+    private val texto = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cores.BRANCO; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD }
     private val r = RectF()
 
     init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
 
     fun definir(p: Int) {
-        if (p == alvo && anim != null) return
+        if (p == alvo) return
         alvo = p
         anim?.cancel()
         if (!Anima.ligadas()) { mostrado = p.toFloat(); invalidate(); return }
         anim = ValueAnimator.ofFloat(mostrado, p.toFloat()).apply {
-            duration = 900; interpolator = DecelerateInterpolator()
+            duration = 1100; interpolator = DecelerateInterpolator(1.5f)
             addUpdateListener { mostrado = it.animatedValue as Float; invalidate() }
             start()
         }
     }
 
-    override fun onMeasure(w: Int, h: Int) {
-        val s = (84 * d).toInt(); setMeasuredDimension(s, s)
+    override fun onMeasure(w: Int, h: Int) { val s = (88 * d).toInt(); setMeasuredDimension(s, s) }
+
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        val cx = w / 2f; val cy = h / 2f
+        arco.shader = SweepGradient(cx, cy, intArrayOf(Cores.ESMERALDA, Cores.CIANO, Cores.ESMERALDA), null).apply {
+            setLocalMatrix(Matrix().apply { setRotate(-90f, cx, cy) })
+        }
+        trilho.shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), Cores.alpha(Cores.BRANCO, 0.06f), Cores.alpha(Cores.OBSIDIAN, 0.9f), Shader.TileMode.CLAMP)
+        brilho.shader = RadialGradient(cx, cy, w / 2f, intArrayOf(0, Cores.alpha(Cores.VIOLETA, 0.45f), 0), floatArrayOf(0.55f, 0.78f, 1f), Shader.TileMode.CLAMP)
     }
 
     override fun onDraw(c: Canvas) {
-        val pad = 9 * d
+        val pad = 11 * d
         r.set(pad, pad, width - pad, height - pad)
         if (alvo >= 80) c.drawArc(r, 0f, 360f, false, brilho)
         c.drawArc(r, 0f, 360f, false, trilho)
         val sweep = 360f * (mostrado.coerceIn(0f, 100f) / 100f)
-        if (sweep > 0) c.drawArc(r, -90f, sweep, false, arco)
-        texto.textSize = 18 * d
-        val t = if (alvo >= 100) "✓ ${mostrado.toInt()}%" else "${mostrado.toInt()}%"
-        c.drawText(t, width / 2f, height / 2f + 6 * d, texto)
+        if (sweep > 0) {
+            c.save(); c.translate(0f, 2.5f * d); c.drawArc(r, -90f, sweep, false, sombra); c.restore()
+            c.drawArc(r, -90f, sweep, false, arco)
+            val ri = RectF(r.left - 2.5f * d, r.top - 2.5f * d, r.right + 2.5f * d, r.bottom + 2.5f * d)
+            c.drawArc(ri, -90f, sweep, false, luz)
+        }
+        texto.textSize = 17 * d
+        c.drawText(if (alvo >= 100) "✓${mostrado.toInt()}%" else "${mostrado.toInt()}%", width / 2f, height / 2f + 6 * d, texto)
     }
 }
 
-/** Gráfico de barras empilhadas dos últimos 7 dias por app (99 violeta, Uber ciano, InDrive esmeralda). */
-class GanhosChart(ctx: Context) : View(ctx) {
+/** Tipos usados pelo painel (dados de 7 dias por app) e cor de cada app. */
+object GanhosChart {
     data class Dia(val rotulo: String, val porApp: Map<String, Long>)
-
-    private val d = ctx.resources.displayMetrics.density
-    private var dias: List<Dia> = emptyList()
-    private var progresso = 1f
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cores.BRANCO_70; textAlign = Paint.Align.CENTER }
-    private val grade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cores.alpha(Cores.BRANCO, 0.08f); strokeWidth = d }
-    private val r = RectF()
-
-    fun definir(novo: List<Dia>, descricao: String) {
-        val mudou = novo != dias
-        dias = novo; contentDescription = descricao
-        if (mudou && Anima.ligadas()) {
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 900; interpolator = DecelerateInterpolator()
-                addUpdateListener { progresso = it.animatedValue as Float; invalidate() }
-                start()
-            }
-        } else { progresso = 1f; invalidate() }
-    }
-
-    override fun onMeasure(w: Int, h: Int) {
-        setMeasuredDimension(getDefaultSize(suggestedMinimumWidth, w), (150 * d).toInt())
-    }
-
-    override fun onDraw(c: Canvas) {
-        if (dias.isEmpty()) return
-        val base = height - 22 * d
-        val topo = 8 * d
-        for (i in 0..3) { val y = topo + (base - topo) * i / 3f; c.drawLine(0f, y, width.toFloat(), y, grade) }
-        val max = dias.maxOf { it.porApp.values.sum() }.coerceAtLeast(1)
-        val slot = width / dias.size.toFloat()
-        val bw = min(slot * 0.55f, 28 * d)
-        txt.textSize = 11 * d
-        dias.forEachIndexed { i, dia ->
-            val cx = slot * i + slot / 2
-            var y = base
-            for (app in Calculos.APPS) {
-                val v = dia.porApp[app] ?: 0
-                if (v <= 0) continue
-                val h = (base - topo) * (v.toFloat() / max) * progresso
-                p.color = corApp(app)
-                r.set(cx - bw / 2, y - h, cx + bw / 2, y)
-                c.drawRoundRect(r, 4 * d, 4 * d, p)
-                y -= h + 1.5f * d
-            }
-            c.drawText(dia.rotulo, cx, height - 6 * d, txt)
-        }
-    }
-
-    companion object {
-        fun corApp(app: String) = when (app) {
-            AppCorrida.NOVENTA_E_NOVE -> Cores.VIOLETA
-            AppCorrida.UBER -> Cores.CIANO
-            else -> Cores.ESMERALDA
-        }
-    }
+    fun corApp(app: String) = CoresSerie.app(app)
 }
 
 /**
- * Orb da Luna com o avatar dentro (spec 1.3): mulher estilizada e adulta com
- * boné LUNA, desenhada em vetor só com as cores da paleta (não é foto, robô nem
- * criança). Em volta, um orb luminoso estilo aurora/galáxia que respira e gira
- * devagar. Shaders criados uma vez por tamanho (leve para a central do carro).
- * Com "remover animações" ligado, fica parado.
+ * Orb da Luna: esfera 3D luminosa (sombreamento esférico, brilho especular, aurora e
+ * galáxia por dentro, anéis girando em volta e partículas), com o avatar da Luna
+ * (spec 1.3: mulher estilizada e adulta, boné LUNA; não é foto, robô nem criança).
+ * Shaders criados só quando o tamanho muda; a cada quadro só giram matrizes.
+ * Com "remover animações" ligado, fica parada.
  */
 class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -176,38 +125,42 @@ class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : Vie
     private val m = Matrix()
     private var fase = 0f
     private var anim: ValueAnimator? = null
-    private var aurora: SweepGradient? = null
-    private var aurora2: SweepGradient? = null
+    private var R = 0f; private var cx = 0f; private var cy = 0f
     private var halo: RadialGradient? = null
-    private var nucleo: RadialGradient? = null
-    /** Fica mais intenso quando a Luna está "pensando" ou falando. */
+    private var esfera: RadialGradient? = null
+    private var aurora: SweepGradient? = null
+    private var sombraEsf: RadialGradient? = null
+    private var especular: RadialGradient? = null
+    private var aro: SweepGradient? = null
+    private var piso: RadialGradient? = null
+    private val clipEsf = Path()
+    private val anel = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    /** Mais intensa quando a Luna está "pensando" ou o turno está correndo. */
     var ativa: Boolean = false
         set(v) { field = v; invalidate() }
 
     init { contentDescription = "Luna, sua assistente" }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
-        val cx = w / 2f; val cy = h / 2f; val r = min(w, h) / 2f
-        aurora = SweepGradient(cx, cy, intArrayOf(
-            Cores.VIOLETA, Cores.CIANO, Cores.ESMERALDA, Cores.alpha(Cores.VIOLETA, 0.1f), Cores.CIANO, Cores.VIOLETA,
-        ), null)
-        aurora2 = SweepGradient(cx, cy, intArrayOf(
-            Cores.alpha(Cores.ESMERALDA, 0f), Cores.alpha(Cores.CIANO, 0.7f), Cores.alpha(Cores.VIOLETA, 0f),
-            Cores.alpha(Cores.VIOLETA, 0.7f), Cores.alpha(Cores.ESMERALDA, 0f),
-        ), null)
-        halo = RadialGradient(cx, cy, r, intArrayOf(
-            Cores.alpha(Cores.VIOLETA, 0.55f), Cores.alpha(Cores.CIANO, 0.18f), Cores.alpha(Cores.OBSIDIAN, 0f),
-        ), floatArrayOf(0.55f, 0.8f, 1f), Shader.TileMode.CLAMP)
-        nucleo = RadialGradient(cx, cy - r * 0.2f, r * 0.8f, intArrayOf(
-            Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.45f), Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.15f), Cores.OBSIDIAN,
-        ), null, Shader.TileMode.CLAMP)
+        cx = w / 2f; cy = h / 2f * 0.94f; R = min(w, h) * 0.34f
+        val t = Shader.TileMode.CLAMP
+        halo = RadialGradient(cx, cy, R * 1.55f, intArrayOf(Cores.alpha(Cores.VIOLETA, 0.6f), Cores.alpha(Cores.MAGENTA, 0.18f), 0), floatArrayOf(0.6f, 0.82f, 1f), t)
+        esfera = RadialGradient(cx - R * 0.35f, cy - R * 0.4f, R * 1.7f,
+            intArrayOf(Cores.mix(Cores.VIOLETA, Cores.BRANCO, 0.25f), Cores.mix(Cores.VIOLETA, Cores.OBSIDIAN, 0.35f), Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.1f)),
+            floatArrayOf(0f, 0.45f, 1f), t)
+        aurora = SweepGradient(cx, cy, intArrayOf(Cores.alpha(Cores.CIANO, 0.55f), 0, Cores.alpha(Cores.MAGENTA, 0.5f), 0, Cores.alpha(Cores.ESMERALDA, 0.45f), 0, Cores.alpha(Cores.CIANO, 0.55f)), null)
+        sombraEsf = RadialGradient(cx - R * 0.3f, cy - R * 0.35f, R * 1.5f, intArrayOf(0, Cores.alpha(Cores.OBSIDIAN, 0.15f), Cores.alpha(Cores.OBSIDIAN, 0.92f)), floatArrayOf(0f, 0.5f, 1f), t)
+        piso = RadialGradient(cx, cy + R * 1.32f, R * 1.1f, intArrayOf(Cores.alpha(Cores.VIOLETA, 0.55f), Cores.alpha(Cores.CIANO, 0.12f), 0), floatArrayOf(0f, 0.5f, 1f), t)
+        especular = RadialGradient(cx - R * 0.42f, cy - R * 0.5f, R * 0.42f, intArrayOf(Cores.alpha(Cores.BRANCO, 0.75f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
+        aro = SweepGradient(cx, cy, intArrayOf(Cores.CIANO, Cores.VIOLETA, Cores.MAGENTA, Cores.CIANO), null)
+        clipEsf.reset(); clipEsf.addCircle(cx, cy, R, Path.Direction.CW)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (Anima.ligadas()) {
             anim = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 12_000; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
+                duration = 16_000; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
                 addUpdateListener { fase = it.animatedValue as Float; invalidate() }
                 start()
             }
@@ -216,44 +169,97 @@ class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : Vie
 
     override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
 
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (isVisible) anim?.resume() else anim?.pause()
+    }
+
+    /** Anel elíptico inclinado: [frente] desenha só a metade da frente da esfera. */
+    private fun anelOrbital(c: Canvas, inclinacao: Float, escala: Float, cor: Int, frente: Boolean, giro: Float, larg: Float) {
+        c.save(); c.rotate(inclinacao, cx, cy)
+        rect.set(cx - R * escala, cy - R * escala * 0.3f, cx + R * escala, cy + R * escala * 0.3f)
+        anel.strokeWidth = larg; anel.shader = null
+        anel.color = Cores.alpha(cor, if (frente) 0.9f else 0.35f)
+        anel.pathEffect = android.graphics.DashPathEffect(floatArrayOf(R * 0.5f, R * 0.12f, R * 0.08f, R * 0.12f), -giro * R * 6)
+        c.drawArc(rect, if (frente) 0f else 180f, 180f, false, anel)
+        anel.pathEffect = null
+        // partícula correndo no anel
+        val ang = (giro * 360f + if (frente) 0f else 180f) % 360f
+        if ((ang in 0f..180f) == frente) {
+            val rad = Math.toRadians(ang.toDouble())
+            p.shader = null; p.color = Cores.BRANCO
+            c.drawCircle(cx + (R * escala * Math.cos(rad)).toFloat(), cy + (R * escala * 0.3f * Math.sin(rad)).toFloat(), larg * 1.2f, p)
+            p.color = Cores.alpha(cor, 0.4f)
+            c.drawCircle(cx + (R * escala * Math.cos(rad)).toFloat(), cy + (R * escala * 0.3f * Math.sin(rad)).toFloat(), larg * 3f, p)
+        }
+        c.restore()
+    }
+
     override fun onDraw(c: Canvas) {
-        val s = min(width, height).toFloat()
-        val cx = width / 2f; val cy = height / 2f
-        val u = s / 120f
-        val respira = 1f + (if (ativa) 0.06f else 0.035f) * sin(fase * 2 * Math.PI * 6).toFloat()
+        if (R <= 0f) return
+        val u = R / 41f
+        val respira = 1f + (if (ativa) 0.07f else 0.04f) * sin(fase * 2 * Math.PI * 8).toFloat()
+        val larg = maxOf(1.2f * u, R * 0.03f)
+        p.reset(); p.isAntiAlias = true
 
         // Halo que respira
-        p.reset(); p.isAntiAlias = true
         p.shader = halo
-        c.save(); c.scale(respira, respira, cx, cy); c.drawCircle(cx, cy, 60 * u, p); c.restore()
+        c.save(); c.scale(respira, respira, cx, cy); c.drawCircle(cx, cy, R * 1.55f, p); c.restore()
 
-        // Anéis de aurora girando em sentidos opostos
-        p.style = Paint.Style.STROKE
+        // Reflexo luminoso no "piso" (a esfera flutua sobre uma base de luz)
+        p.shader = piso
+        c.save(); c.scale(1f, 0.16f, cx, cy + R * 1.32f); c.drawCircle(cx, cy + R * 1.32f, R * 1.1f * (2f - respira), p); c.restore()
+
+        // Anéis (metade de trás)
+        anelOrbital(c, -18f, 1.42f, Cores.CIANO, false, fase * 2, larg)
+        anelOrbital(c, 24f, 1.28f, Cores.MAGENTA, false, -fase * 3, larg * 0.8f)
+
+        // Esfera
+        p.shader = esfera; c.drawCircle(cx, cy, R, p)
+        c.save(); c.clipPath(clipEsf)
+        // Aurora girando dentro da esfera
         m.setRotate(fase * 360f, cx, cy); aurora?.setLocalMatrix(m)
-        p.shader = aurora; p.strokeWidth = (if (ativa) 5f else 3.5f) * u
-        c.drawCircle(cx, cy, 44 * u * respira, p)
-        m.setRotate(-fase * 720f, cx, cy); aurora2?.setLocalMatrix(m)
-        p.shader = aurora2; p.strokeWidth = 7 * u
-        c.drawCircle(cx, cy, 48 * u * respira, p)
-
-        // Núcleo (galáxia) com estrelas
-        p.style = Paint.Style.FILL; p.shader = nucleo
-        c.drawCircle(cx, cy, 41 * u, p)
+        p.shader = aurora; c.drawCircle(cx, cy, R, p)
         p.shader = null
-        for (i in 0 until 9) {
-            val ang = (i * 40 + fase * 360 * (if (i % 2 == 0) 1 else -1)) * Math.PI / 180
-            val rr = (18 + (i * 7) % 20) * u
-            p.color = Cores.alpha(if (i % 3 == 0) Cores.CIANO else Cores.BRANCO, 0.25f + 0.5f * ((sin(fase * 40 + i) + 1) / 2))
-            c.drawCircle(cx + (rr * Math.cos(ang)).toFloat(), cy + (rr * Math.sin(ang)).toFloat(), 0.9f * u, p)
+        // Faixas de aurora (ondas que correm, dão sensação de rotação)
+        for (k in 0 until 3) {
+            path.reset()
+            val yb = cy - R * 0.5f + k * R * 0.42f
+            val desl = (fase * 4 + k * 0.33f) % 1f * R * 2
+            path.moveTo(cx - R * 2 + desl, yb)
+            var x = cx - R * 2 + desl
+            while (x < cx + R * 1.2f) { path.rQuadTo(R * 0.25f, -R * 0.18f, R * 0.5f, 0f); path.rQuadTo(R * 0.25f, R * 0.18f, R * 0.5f, 0f); x += R }
+            anel.style = Paint.Style.STROKE; anel.strokeWidth = R * 0.12f; anel.pathEffect = null
+            anel.color = Cores.alpha(listOf(Cores.CIANO, Cores.ESMERALDA, Cores.MAGENTA)[k], 0.22f)
+            c.drawPath(path, anel)
         }
-        if (mostrarAvatar) desenharAvatar(c, cx, cy + 4 * u, u * 1.0f)
+        // Estrelas
+        for (i in 0 until 14) {
+            val ang = (i * 47 + fase * 360 * (if (i % 2 == 0) 1 else -1)) * Math.PI / 180
+            val rr = ((i * 13) % 37 + 3) / 40f * R
+            p.color = Cores.alpha(if (i % 3 == 0) Cores.CIANO else Cores.BRANCO, 0.3f + 0.5f * ((sin(fase * 60 + i) + 1) / 2))
+            c.drawCircle(cx + (rr * Math.cos(ang)).toFloat(), cy + (rr * Math.sin(ang) * 0.8).toFloat(), maxOf(0.8f, 0.9f * u), p)
+        }
+        if (mostrarAvatar) desenharAvatar(c, cx, cy + 4 * u, u)
+        // Sombreamento esférico + brilho especular
+        p.shader = sombraEsf; c.drawCircle(cx, cy, R, p)
+        p.shader = especular; c.drawCircle(cx - R * 0.42f, cy - R * 0.5f, R * 0.42f, p)
+        c.restore()
+        // Aro luminoso
+        m.setRotate(-fase * 720f, cx, cy); aro?.setLocalMatrix(m)
+        anel.shader = aro; anel.pathEffect = null; anel.strokeWidth = larg * (if (ativa) 1.6f else 1.1f); anel.color = Cores.BRANCO
+        c.drawCircle(cx, cy, R, anel); anel.shader = null
+
+        // Anéis (metade da frente)
+        anelOrbital(c, -18f, 1.42f, Cores.CIANO, true, fase * 2, larg)
+        anelOrbital(c, 24f, 1.28f, Cores.MAGENTA, true, -fase * 3, larg * 0.8f)
     }
 
     private fun desenharAvatar(c: Canvas, cx: Float, cy0: Float, u: Float) {
         val bob = sin(fase * 2 * Math.PI * 6).toFloat() * 0.8f * u
         val cy = cy0 + bob
         c.save()
-        path.reset(); path.addCircle(cx, cy0 - 4 * u, 41 * u, Path.Direction.CW); c.clipPath(path)
+        
         // Cabelo longo (violeta), atrás do rosto
         p.color = Cores.VIOLETA
         path.reset()

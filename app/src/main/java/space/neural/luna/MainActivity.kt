@@ -26,7 +26,20 @@ import space.neural.luna.chat.ChatActivity
 import space.neural.luna.dashboard.AcoesPainel
 import space.neural.luna.dashboard.Anima
 import space.neural.luna.dashboard.AnotacoesActivity
-import space.neural.luna.dashboard.AppsCard
+import space.neural.luna.dashboard.FundoNeon
+import space.neural.luna.dashboard.GraficoCard
+import space.neural.luna.dashboard.KpiStrip
+import space.neural.luna.dashboard.CalendarioCard
+import space.neural.luna.dashboard.GalaxiaView
+import space.neural.luna.dashboard.LunaCard
+import space.neural.luna.dashboard.RelatoriosCard
+import space.neural.luna.chat.LunaConversa
+import space.neural.luna.dashboard.LimitesCard
+import space.neural.luna.dashboard.LancamentosCard
+import space.neural.luna.dashboard.Periodo
+import space.neural.luna.dashboard.RankingCard
+import space.neural.luna.dashboard.RoscasCard
+import space.neural.luna.dashboard.SeletorPeriodo
 import space.neural.luna.dashboard.Cabecalho
 import space.neural.luna.dashboard.Calculos
 import space.neural.luna.dashboard.Cores
@@ -41,6 +54,7 @@ import space.neural.luna.dashboard.NoticiasCard
 import space.neural.luna.dashboard.Painel
 import space.neural.luna.dashboard.ResumoCard
 import space.neural.luna.dashboard.TurnoAcoes
+import space.neural.luna.data.local.MaquinaTurno
 import space.neural.luna.dashboard.TurnoCard
 import space.neural.luna.dashboard.Ui
 import space.neural.luna.data.local.TipoMeta
@@ -53,7 +67,8 @@ import java.util.Locale
 /**
  * Tela inicial: dashboard (TELAS_DASHBOARD.md). Lê só os dados locais (Room);
  * a sincronização com o Firebase continua em segundo plano (SyncWorker).
- * Layout: 1 coluna (< 600dp), 2 colunas (600–839dp) e 3 colunas (≥ 840dp).
+ * Layout: 1 coluna (< 600dp), telefone deitado em 2 colunas, tablet (600–839dp) em linhas
+ * e 3 colunas com faixa de KPIs (≥ 840dp, ex.: Geely X2).
  */
 class MainActivity : AppCompatActivity(), AcoesPainel {
     private lateinit var ui: Ui
@@ -66,7 +81,27 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private lateinit var turnoCard: TurnoCard
     private lateinit var resumo: ResumoCard
     private lateinit var metas: MetasCard
-    private lateinit var apps: AppsCard
+    private lateinit var kpis: KpiStrip
+    private lateinit var seletor: SeletorPeriodo
+    private lateinit var grafico: GraficoCard
+    private lateinit var roscas: RoscasCard
+    private lateinit var ranking: RankingCard
+    private lateinit var lancamentos: LancamentosCard
+    private lateinit var limites: LimitesCard
+    private lateinit var luna: LunaCard
+    private lateinit var relatorios: RelatoriosCard
+    private lateinit var calendario: CalendarioCard
+    private val conversa by lazy { LunaConversa.get(this) }
+    private var reconhecedor: android.speech.SpeechRecognizer? = null
+    private var ouvindo = false
+    private val permMic = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) ouvir() else luna.ocioso("Sem permissão do microfone. Toque duas vezes para escrever na conversa.")
+    }
+    private val ditadoExterno = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val t = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!t.isNullOrBlank()) perguntarLuna(t) else luna.ocioso()
+    }
+    private var periodo: Periodo = Periodo.HOJE
     private lateinit var noticias: NoticiasCard
     private lateinit var dica: DicaCard
 
@@ -119,7 +154,62 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         super.onStop()
     }
 
-    override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { reconhecedor?.destroy(); tts?.shutdown(); super.onDestroy() }
+
+    // ---------------- Luna por voz na tela inicial ----------------
+
+    /** Um toque no card da Luna: ouve aqui mesmo (ou para, se já estiver ouvindo). */
+    private fun falarComLuna() {
+        if (ouvindo) { reconhecedor?.stopListening(); return }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permMic.launch(android.Manifest.permission.RECORD_AUDIO); return
+        }
+        ouvir()
+    }
+
+    private fun ouvir() {
+        tts?.stop()
+        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Fale com a Luna")
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) {
+            runCatching { ditadoExterno.launch(intent) }.onFailure { luna.ocioso("Este aparelho não tem reconhecimento de voz. Toque duas vezes para escrever.") }
+            return
+        }
+        val r = reconhecedor ?: android.speech.SpeechRecognizer.createSpeechRecognizer(this).also { reconhecedor = it }
+        r.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { luna.ouvindo(null) }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() { ouvindo = false }
+            override fun onError(error: Int) { ouvindo = false; luna.ocioso("Não ouvi direito. Toque para tentar de novo.") }
+            override fun onPartialResults(b: Bundle?) {
+                b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { luna.ouvindo(it) }
+            }
+            override fun onResults(b: Bundle?) {
+                ouvindo = false
+                val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                if (t.isNullOrBlank()) luna.ocioso("Não ouvi direito. Toque para tentar de novo.") else perguntarLuna(t)
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+        ouvindo = true
+        luna.ouvindo(null)
+        r.startListening(intent)
+    }
+
+    /** Manda para a Luna (voz transcrita ou botão) e mostra/fala a resposta no próprio card. */
+    private fun perguntarLuna(texto: String, rotulo: String? = null) {
+        luna.pensando(rotulo ?: texto)
+        lifecycleScope.launch {
+            val r = conversa.enviar(texto, voz = rotulo == null, rotulo = rotulo)
+            luna.resposta(r)
+            ler(r.texto)
+        }
+    }
 
     private fun temInternet(): Boolean {
         val caps = rede.getNetworkCapabilities(rede.activeNetwork) ?: return false
@@ -150,66 +240,89 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val margem = ui.dp(if (tablet) 24 else 16)
         val gap = ui.dp(if (tablet) 16 else 12)
 
-        cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this)
-        turnoCard = TurnoCard(ui, largo = cls == 2 && !telefonePaisagem, a = this)
+        periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
+        cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)
+        turnoCard = TurnoCard(ui, largo = false, a = this, orbDp = when { telefonePaisagem -> 150; cls == 3 -> 190; else -> 210 })
         resumo = ResumoCard(ui, this)
         metas = MetasCard(ui, this)
-        apps = AppsCard(ui, horizontal = cls != 3 && (cls == 2 || w >= 400), a = this)
+        kpis = KpiStrip(ui, colunas = if (telefonePaisagem || (cls == 1 && w < 600)) 2 else 4)
+        seletor = SeletorPeriodo(ui) { escolherPeriodo(it) }
+        grafico = GraficoCard(ui)
+        roscas = RoscasCard(ui)
+        ranking = RankingCard(ui, this)
+        lancamentos = LancamentosCard(ui, this)
+        limites = LimitesCard(ui, this)
+        luna = LunaCard(ui, { falarComLuna() }, { conversar() }, { b -> perguntarLuna(b.comando, b.rotulo) })
+        relatorios = RelatoriosCard(ui) { startActivity(Intent(this, space.neural.luna.dashboard.RelatorioActivity::class.java)) }
+        calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
         noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
         dica = DicaCard(ui, this)
 
-        val raiz = ui.vbox().apply { setBackgroundColor(Cores.OBSIDIAN) }
+        val raiz = ui.vbox()
         raiz.addView(cab.view, ui.mp())
+        if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(4)))
 
         fun coluna(id: Int, vararg cards: View): ScrollView {
             val col = ui.vbox()
             cards.forEachIndexed { i, c -> col.addView(c, ui.mp(if (i == 0) 0 else gap)) }
-            col.setPadding(0, 0, 0, gap)
-            return ScrollView(this).apply { this.id = id; addView(col); isVerticalScrollBarEnabled = false }
+            col.setPadding(0, ui.dp(4), 0, gap)
+            col.clipToPadding = false; col.clipChildren = false
+            return ScrollView(this).apply { this.id = id; addView(col); isVerticalScrollBarEnabled = false; clipToPadding = false }
         }
         fun linha(vararg cards: View) = ui.hbox().apply {
             gravity = android.view.Gravity.TOP
-            cards.forEachIndexed { i, c -> addView(c, ui.peso(1f, if (i == 0) 0 else gap)) }
+            cards.forEachIndexed { i, c -> addView(c, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else gap }) }
         }
 
         val ordem: List<View>
         when {
             cls == 1 -> {
-                ordem = listOf(turnoCard.view, resumo.view, metas.view, apps.view, noticias.view, dica.view)
-                raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+                ordem = listOf(kpis.view, turnoCard.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, calendario.view, metas.view, limites.view, resumo.view, lancamentos.view, noticias.view, dica.view)
+                raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             telefonePaisagem -> {
-                ordem = listOf(turnoCard.view, resumo.view, metas.view, apps.view, noticias.view, dica.view)
+                ordem = listOf(turnoCard.view, calendario.view, resumo.view, metas.view, limites.view, luna.view, kpis.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view)
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_esquerda, turnoCard.view, resumo.view), LinearLayout.LayoutParams(0, -1, 0.4f))
-                l.addView(coluna(R.id.rolagem_direita, metas.view, apps.view, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
-                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+                l.addView(coluna(R.id.rolagem_esquerda, turnoCard.view, calendario.view, resumo.view, metas.view, limites.view), LinearLayout.LayoutParams(0, -1, 0.4f))
+                l.addView(coluna(R.id.rolagem_direita, luna.view, kpis.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
+                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             cls == 2 -> {
-                ordem = listOf(turnoCard.view, resumo.view, metas.view, apps.view, noticias.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, metas.view, limites.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, calendario.view, resumo.view, lancamentos.view, noticias.view, dica.view)
                 val col = ui.vbox()
-                col.addView(turnoCard.view, ui.mp())
-                col.addView(linha(resumo.view, metas.view), ui.mp(gap))
-                col.addView(apps.view, ui.mp(gap))
-                col.addView(linha(noticias.view, dica.view), ui.mp(gap))
+                col.addView(kpis.view, ui.mp(ui.dp(4)))
+                val metasLimites = ui.vbox().apply { addView(metas.view, ui.mp()); addView(limites.view, ui.mp(gap)) }
+                col.addView(linha(turnoCard.view, metasLimites), ui.mp(gap))
+                col.addView(relatorios.view, ui.mp(gap))
+                col.addView(seletor.view, ui.mp(gap))
+                col.addView(grafico.view, ui.mp(gap))
+                col.addView(linha(ranking.view, roscas.view), ui.mp(gap))
+                col.addView(linha(calendario.view, resumo.view), ui.mp(gap))
+                col.addView(linha(lancamentos.view, noticias.view), ui.mp(gap))
+                col.addView(dica.view, ui.mp(gap))
                 col.setPadding(0, 0, 0, gap)
-                raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(col) }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+                raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(col); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             else -> {
-                ordem = listOf(turnoCard.view, resumo.view, metas.view, apps.view, noticias.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, calendario.view, metas.view, limites.view, resumo.view, relatorios.view, seletor.view, grafico.view, ranking.view, roscas.view, lancamentos.view, noticias.view, dica.view)
+                raiz.addView(kpis.view, ui.mp(gap / 2))
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, resumo.view), LinearLayout.LayoutParams(0, -1, 1f))
-                l.addView(coluna(R.id.rolagem_col2, metas.view, apps.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
-                l.addView(coluna(R.id.rolagem_col3, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, calendario.view, metas.view, limites.view, resumo.view), LinearLayout.LayoutParams(0, -1, 1f))
+                l.addView(coluna(R.id.rolagem_col2, relatorios.view, seletor.view, grafico.view, ranking.view), LinearLayout.LayoutParams(0, -1, 1.15f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_col3, roscas.view, lancamentos.view, noticias.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
                 raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
             }
         }
-        setContentView(raiz)
+        // Galáxia com aurora animada atrás de tudo.
+        val tela = android.widget.FrameLayout(this)
+        tela.addView(GalaxiaView(this), android.widget.FrameLayout.LayoutParams(-1, -1))
+        tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
+        setContentView(tela)
         ViewCompat.setOnApplyWindowInsetsListener(raiz) { v, ins ->
             val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(b.left + margem, b.top + margem / 2, b.right + margem, b.bottom); ins
         }
-        if (animar) { Anima.entrada(cab.view, 0); ordem.forEachIndexed { i, v -> Anima.entrada(v, i + 1) } }
+        if (animar) { Anima.entrada(cab.view, 0); if (!telefonePaisagem) Anima.entrada(luna.view, 1); ordem.forEachIndexed { i, v -> if (v !== luna.view || telefonePaisagem) Anima.entrada(v, i + 2) } }
     }
 
     private fun desenhar() {
@@ -218,17 +331,20 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         }
         val agora = System.currentTimeMillis()
         cab.bind(p, online, BuildConfig.FIREBASE_CONFIGURED)
-        turnoCard.bind(p.turno)
+        turnoCard.bind(p.situacao)
         resumo.bind(p, agora, sugerirParar(p, agora))
         metas.bind(p, alertaMotivacional(p))
-        apps.bind(p)
+        seletor.bind(periodo)
+        val e = p.estatisticas(periodo, agora)
+        kpis.bind(e); grafico.bind(e); roscas.bind(e); ranking.bind(e); lancamentos.bind(e)
+        limites.bind(p); relatorios.bind(p); calendario.bind(p)
         noticias.bind(externo, online, carregandoExterno)
         dica.bind(p.hoje)
     }
 
     private fun sugerirParar(p: Painel, agora: Long): Boolean {
         if (agora < prefs.getLong("parar_agora_nao_ate", 0)) return false
-        val trab = Calculos.trabalhoMs(p.turno, agora)
+        val trab = p.trabalhoDia(agora)
         val ph = Calculos.porHoraCentavos(p.resumo.liquidoCentavos, trab)
         return Calculos.sugerirParar(p.turno, trab, ph, prefs.getLong("limite_por_hora_centavos", LIMITE_POR_HORA_PADRAO))
     }
@@ -263,30 +379,52 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         lifecycleScope.launch { f(t) }
     }
 
-    override fun iniciar() { lifecycleScope.launch { acoes.iniciar() } }
+    override fun iniciar() { painel?.let { p -> lifecycleScope.launch { acoes.iniciar(p.situacao) } } }
     override fun pausar() = comTurno { acoes.pausar(it) }
     override fun cafe() = comTurno { acoes.cafe(it) }
-    override fun retomar() = comTurno { acoes.retomar(it) }
+    /** Retomar pausa/café, retomar o turno 4 já fechado ou reabrir o dia concluído. */
+    override fun retomar() {
+        val t = painel?.situacao?.turno ?: return
+        lifecycleScope.launch { acoes.retomar(t) }
+    }
+    /** Fecha o turno sem bloquear: o próximo já fica pronto; a correção fica como opção no card. */
     override fun fecharTurno() = comTurno {
         acoes.fechar(it)
-        startActivity(LancamentosActivity.correcao(this, it.id)) // sempre abre a tela de correção
+        val msg = if (it.numero < MaquinaTurno.TOTAL) "Turno ${it.numero} fechado. Turno ${it.numero + 1} pronto para iniciar."
+        else "Turno 4 fechado. Você pode retomar ou concluir o dia."
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
-    override fun concluir() = comTurno {
-        acoes.concluir(it)
-        Toast.makeText(this, "Dia concluído e salvo no histórico.", Toast.LENGTH_SHORT).show()
+    override fun concluir() {
+        val p = painel ?: return
+        dlg.confirmar("Concluir dia", "Encerra o dia de trabalho e guarda os turnos no histórico.", "Concluir dia") {
+            lifecycleScope.launch {
+                acoes.concluirDia(p.turnosTodos, p.situacao)
+                Toast.makeText(this@MainActivity, "Dia concluído e salvo no histórico.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
-    override fun corrigir() { painel?.turno?.let { startActivity(LancamentosActivity.correcao(this, it.id)) } }
+    override fun corrigir() {
+        val s = painel?.situacao ?: return
+        (s.anterior ?: s.turno)?.let { startActivity(LancamentosActivity.correcao(this, it.id)) }
+    }
     override fun zerar() {
-        dlg.confirmar("Zerar turno", "O turno recomeça do zero. Os ganhos continuam no histórico.", "Zerar") {
-            comTurno { acoes.concluir(it) }
+        val t = painel?.turno ?: return
+        dlg.confirmar("Zerar tempo", "O contador do turno ${t.numero} para e volta a 00:00:00. Os ganhos lançados continuam.", "Zerar tempo") {
+            lifecycleScope.launch { acoes.zerar(t) }
         }
     }
     override fun diaEsquecido() = dlg.escolherDia { startActivity(LancamentosActivity.dia(this, it.toString())) }
     override fun detalheDia() = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString()))
+    override fun abrirDia(data: String) = startActivity(LancamentosActivity.dia(this, data))
+    private fun escolherPeriodo(p: Periodo) {
+        if (p == periodo) return
+        periodo = p; prefs.edit().putString("periodo", p.name).apply(); desenhar()
+    }
     override fun detalheApp(app: String) = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString(), app))
     override fun lancarGanho(app: String?) = dlg.ganho(java.time.LocalDate.now().toString(), painel?.turno?.id, app)
     override fun lancarGasto(categoria: String?) = dlg.gasto(java.time.LocalDate.now().toString(), painel?.turno?.id, categoria)
-    override fun editarMeta(tipo: String, atual: Long?) = dlg.meta(tipo, atual)
+    override fun gastoEnvelope(e: space.neural.luna.dashboard.Plano.Envelope) = dlg.gastoEnvelope(e.limite, e.restanteCentavos)
+    override fun planejamento() = startActivity(Intent(this, space.neural.luna.config.PlanejamentoActivity::class.java))
     override fun dispensarAlerta(chave: String) { prefs.edit().putInt(chave, 2).apply(); desenhar() }
     override fun pararAgoraNao() { prefs.edit().putLong("parar_agora_nao_ate", System.currentTimeMillis() + 60 * 60_000L).apply(); desenhar() }
 
@@ -341,6 +479,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         m.menu.add(0, 2, 1, "Histórico")
         m.menu.add(0, 3, 2, "Lançar dia esquecido")
         m.menu.add(0, 4, 3, "Anotações")
+        m.menu.add(0, 8, 4, "Configurações / Planejamento")
         m.menu.add(0, 5, 4, "Luna fala os alertas").apply { isCheckable = true; isChecked = prefs.getBoolean("voz_alertas", true) }
         m.menu.add(0, 6, 5, getString(R.string.teste_firebase))
         m.menu.add(0, 7, 6, getString(R.string.atualizacao))
@@ -353,6 +492,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
                 5 -> prefs.edit().putBoolean("voz_alertas", !prefs.getBoolean("voz_alertas", true)).apply()
                 6 -> startActivity(Intent(this, TesteFirebaseActivity::class.java))
                 7 -> startActivity(Intent(this, AtualizacaoActivity::class.java))
+                8 -> planejamento()
             }
             true
         }

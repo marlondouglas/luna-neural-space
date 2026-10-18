@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.combine
@@ -14,6 +15,7 @@ import space.neural.luna.R
 import space.neural.luna.data.local.Ganho
 import space.neural.luna.data.local.Gasto
 import space.neural.luna.data.local.Turno
+import space.neural.luna.data.local.MaquinaTurno
 import space.neural.luna.data.repo.LunaRepositories
 import java.time.Instant
 import java.time.LocalDate
@@ -31,6 +33,7 @@ class LancamentosActivity : AppCompatActivity() {
     private lateinit var dlg: Dialogos
     private lateinit var conteudo: LinearLayout
     private var turno: Turno? = null
+    private var turnosDia: List<Turno> = emptyList()
     private var inicio = 0L
     private var fim = 0L
     private val hm = DateTimeFormatter.ofPattern("dd/MM HH:mm")
@@ -42,7 +45,7 @@ class LancamentosActivity : AppCompatActivity() {
         val app = intent.getStringExtra(EXTRA_APP)
         val turnoId = intent.getStringExtra(EXTRA_TURNO)
 
-        val raiz = ui.vbox(ui.dp(16)).apply { setBackgroundColor(Cores.OBSIDIAN) }
+        val raiz = ui.vbox(ui.dp(16)).apply { background = FundoNeon() }
         val cab = ui.hbox()
         cab.addView(ui.botaoIcone(R.drawable.ic_close, "Voltar") { finish() })
         val titulo = when {
@@ -65,9 +68,10 @@ class LancamentosActivity : AppCompatActivity() {
                 turno = repo.turnoPorId(turnoId)
                 turno?.let { inicio = savedInstanceState?.getLong("ini") ?: it.inicio; fim = savedInstanceState?.getLong("fim") ?: (it.fim ?: System.currentTimeMillis()) }
             }
-            repo.observeGanhos().combine(repo.observeGastos()) { g, d -> g to d }.collect { (gs, ds) ->
+            kotlinx.coroutines.flow.combine(repo.observeGanhos(), repo.observeGastos(), repo.observeTurnos()) { g, d, t -> Triple(g, d, t) }.collect { (gs, ds, ts) ->
                 val ganhos = gs.filter { if (turnoId != null) it.turnoId == turnoId else it.data == data && (app == null || it.app == app) }
                 val gastos = if (app != null) emptyList() else ds.filter { if (turnoId != null) it.turnoId == turnoId else it.data == data }
+                turnosDia = MaquinaTurno.doDia(ts, data)
                 desenhar(ganhos, gastos, turno?.data ?: data, turnoId, app)
             }
         }
@@ -104,14 +108,21 @@ class LancamentosActivity : AppCompatActivity() {
             conteudo.addView(c, ui.mp())
         }
 
-        val bruto = ganhos.sumOf { it.valorCentavos }; val gasto = gastos.sumOf { it.valorCentavos }
+        val futuro = LocalDate.parse(data).isAfter(LocalDate.now())
+        if (turnoId == null && app == null) conteudo.addView(cardTurnos(data, futuro), ui.mp())
+
+        val bruto = ganhos.sumOf { it.valorCentavos }; val gasto = gastos.filter { it.limiteId == null }.sumOf { it.valorCentavos }; val pessoal = gastos.filter { it.limiteId != null }.sumOf { it.valorCentavos }
         val tot = ui.card()
         tot.addView(ui.tituloIcone(R.drawable.ic_wallet, "Totais"))
-        tot.addView(ui.text("Bruto ${Fmt.reais(bruto)}" + (if (app == null) "  ·  Gastos ${Fmt.reais(gasto)}  ·  Líquido ${Fmt.reais(bruto - gasto)}" else "  ·  ${ganhos.size} corridas"), 16f), ui.mp(ui.dp(8)))
-        val bts = ui.hbox()
-        bts.addView(ui.comIcone(ui.botao("Ganho", Ui.Estilo.CHEIO_ESMERALDA) { dlg.ganho(data, turnoId, app) }, R.drawable.ic_add), ui.peso(1f))
-        if (app == null) bts.addView(ui.comIcone(ui.botao("Gasto") { dlg.gasto(data, turnoId) }, R.drawable.ic_add), ui.peso(1f, ui.dp(8)))
-        tot.addView(bts, ui.mp(ui.dp(12)))
+        tot.addView(ui.text("Bruto ${Fmt.reais(bruto)}" + (if (app == null) "  ·  Gastos ${Fmt.reais(gasto)}  ·  Líquido ${Fmt.reais(bruto - gasto)}" + (if (pessoal > 0) "\nPessoais (limites): ${Fmt.reais(pessoal)} — não entram no líquido do trabalho" else "") else "  ·  ${ganhos.size} corridas"), 16f), ui.mp(ui.dp(8)))
+        if (futuro) {
+            tot.addView(ui.text("Dia futuro: só para ver. Ganhos e gastos podem ser lançados a partir do próprio dia.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(8)))
+        } else {
+            val bts = ui.hbox()
+            bts.addView(ui.comIcone(ui.botao("Ganho", Ui.Estilo.CHEIO_ESMERALDA) { dlg.ganho(data, turnoId, app) }, R.drawable.ic_add), ui.peso(1f))
+            if (app == null) bts.addView(ui.comIcone(ui.botao("Gasto") { dlg.gasto(data, turnoId) }, R.drawable.ic_add), ui.peso(1f, ui.dp(8)))
+            tot.addView(bts, ui.mp(ui.dp(12)))
+        }
         conteudo.addView(tot, ui.mp(ui.dp(12)))
 
         val lg = ui.card()
@@ -136,6 +147,111 @@ class LancamentosActivity : AppCompatActivity() {
             }
             conteudo.addView(ld, ui.mp(ui.dp(12)))
         }
+    }
+
+    /** Os 4 turnos do dia: início, término, pausas e horas (editáveis; dá para lançar dias passados). */
+    private fun cardTurnos(data: String, futuro: Boolean): LinearLayout {
+        val c = ui.card(destaque = true, acento = Cores.CIANO)
+        val agora = System.currentTimeMillis()
+        val total = turnosDia.sumOf { MaquinaTurno.trabalhoMs(it, agora) }
+        c.addView(ui.hbox().apply {
+            addView(ui.tituloIcone(R.drawable.ic_timer, "Turnos do dia", Cores.CIANO), ui.peso(1f))
+            addView(ui.text("Trabalho: ${Fmt.hms(total).substring(0, 5)} h", 15f, Cores.CIANO, bold = true))
+        })
+        for (n in 1..MaquinaTurno.TOTAL) {
+            val t = turnosDia.firstOrNull { it.numero == n }
+            val l = ui.hbox().apply { minimumHeight = ui.dp(52) }
+            l.addView(ui.text("$n", 16f, Cores.OBSIDIAN, bold = true).apply {
+                gravity = android.view.Gravity.CENTER
+                background = ui.fundo(if (t != null) Cores.CIANO else Cores.alpha(Cores.BRANCO, 0.15f), raio = 16f)
+            }, LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)))
+            val txt = if (t == null) "Turno $n — não lançado" else {
+                val fimTxt = when {
+                    t.estado == space.neural.luna.data.local.EstadoTurno.PRONTO -> "pronto"
+                    t.fim != null -> hhmm(t.fim)
+                    else -> "agora"
+                }
+                "Turno $n · ${if (t.estado == space.neural.luna.data.local.EstadoTurno.PRONTO) "—" else hhmm(t.inicio)}–$fimTxt · pausas ${Fmt.minutos(Calculos.paradoMs(t, agora))} min · ${Fmt.hms(MaquinaTurno.trabalhoMs(t, agora)).substring(0, 5)} h"
+            }
+            l.addView(ui.ajustavel(txt, 15f, 10f, if (t != null) Cores.BRANCO else Cores.BRANCO_70, bold = false), ui.peso(1f, ui.dp(10)))
+            if (t != null && t.estado != space.neural.luna.data.local.EstadoTurno.PRONTO) {
+                l.addView(ui.botao("Editar", Ui.Estilo.TEXTO) { editarTurno(data, n, t) })
+            } else if (t == null && !futuro) {
+                l.addView(ui.botao("Lançar", Ui.Estilo.TEXTO) { editarTurno(data, n, null) })
+            }
+            c.addView(l, ui.mp(ui.dp(6)))
+        }
+        if (futuro) c.addView(ui.text("Dia futuro: só visualização.", 13f, Cores.BRANCO_70), ui.mp(ui.dp(4)))
+        return c
+    }
+
+    private val so = DateTimeFormatter.ofPattern("HH:mm")
+    private fun hhmm(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(so)
+
+    /**
+     * Editar/lançar turno: início, término e pausas. Horas = término − início − pausas.
+     * Turno ainda aberto: mudar o início soma/subtrai a diferença no tempo de trabalho.
+     */
+    private fun editarTurno(data: String, n: Int, t: Turno?) {
+        val dia = LocalDate.parse(data)
+        val z = ZoneId.systemDefault()
+        val aberto = t != null && t.fim == null
+        var ini = t?.inicio ?: dia.atTime(6, 0).atZone(z).toInstant().toEpochMilli()
+        var fimMs: Long? = t?.fim ?: if (t == null) dia.atTime(10, 0).atZone(z).toInstant().toEpochMilli() else null
+        val c = dlg.corpo()
+        val bIni = ui.botao("") {}; val bFim = ui.botao("") {}
+        val pausas = dlg.campo("Pausas (minutos)", ((t?.paradoMs ?: 0) / 60_000).toString(), decimal = false).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            isEnabled = !aberto
+        }
+        val horas = ui.text("", 15f, Cores.CIANO, bold = true)
+        fun calc(): Long? {
+            val f = fimMs ?: return null
+            val p = (pausas.text.toString().toLongOrNull() ?: 0) * 60_000
+            return (f - ini - p).coerceAtLeast(0)
+        }
+        fun pintar() {
+            bIni.text = "Início: ${hhmm(ini)}"
+            bFim.text = if (fimMs == null) "Término: em andamento" else "Término: ${hhmm(fimMs!!)}"
+            horas.text = calc()?.let { "Horas trabalhadas: ${Fmt.hms(it).substring(0, 5)}" }
+                ?: "Horas trabalhadas: ${Fmt.hms(MaquinaTurno.trabalhoMs(t, System.currentTimeMillis()) + ((t?.inicio ?: ini) - ini)).substring(0, 5)} (em andamento)"
+        }
+        bIni.setOnClickListener { escolherHora(ini) { ini = it; pintar() } }
+        bFim.setOnClickListener { if (fimMs != null) escolherHora(fimMs!!) { v -> fimMs = if (v <= ini) v + 86_400_000L else v; pintar() } }
+        pausas.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) = pintar()
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
+        c.addView(bIni, ui.mp()); c.addView(bFim, ui.mp(ui.dp(8))); c.addView(pausas, ui.mp(ui.dp(8))); c.addView(horas, ui.mp(ui.dp(10)))
+        pintar()
+        val b = AlertDialog.Builder(this).setTitle(if (t == null) "Lançar turno $n" else "Turno $n — ${Fmt.dataCurta(dia)}").setView(c)
+            .setPositiveButton("Salvar", null).setNegativeButton("Cancelar", null)
+        if (t != null) b.setNeutralButton("Excluir") { _, _ ->
+            dlg.confirmar("Excluir turno $n", "Os ganhos e gastos do dia continuam.", "Excluir") { lifecycleScope.launch { repo.excluirTurno(t.id) } }
+        }
+        val a = b.create()
+        a.setOnShowListener {
+            a.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val f = fimMs
+                if (f != null && f <= ini) return@setOnClickListener dlg.erro("O término precisa ser depois do início.")
+                if (ini > System.currentTimeMillis()) return@setOnClickListener dlg.erro("O início não pode ser no futuro.")
+                val p = (pausas.text.toString().toLongOrNull() ?: 0) * 60_000
+                lifecycleScope.launch {
+                    if (t == null) {
+                        val est = if (dia.isBefore(LocalDate.now())) space.neural.luna.data.local.EstadoTurno.CONCLUIDO else space.neural.luna.data.local.EstadoTurno.FECHADO
+                        repo.salvarTurno(Turno(data = data, numero = n, inicio = ini, fim = f, ultimoEvento = f ?: ini, estado = est, paradoMs = p, trabalhoMs = calc() ?: 0))
+                    } else if (aberto) {
+                        // Em andamento: só o início muda; o contador soma a diferença.
+                        repo.salvarTurno(t.copy(inicio = ini, trabalhoMs = (t.trabalhoMs + (t.inicio - ini)).coerceAtLeast(0)))
+                    } else {
+                        repo.salvarTurno(t.copy(inicio = ini, fim = f, paradoMs = p, trabalhoMs = calc() ?: t.trabalhoMs))
+                    }
+                }
+                a.dismiss()
+            }
+        }
+        a.show()
     }
 
     private fun linha(texto: String, editar: () -> Unit, excluir: () -> Unit) = ui.hbox().apply {

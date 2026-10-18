@@ -48,7 +48,7 @@ class CalculosTest {
         assertEquals(3240L, r.energiaCalculadaCentavos)
         assertEquals(18.0, r.energiaKwh, 0.0)
         val apps = Calculos.porApp(g)
-        assertEquals(listOf(9000L, 8000L, 0L), apps.map { it.centavos })
+        assertEquals(listOf(9000L, 8000L, 0L, 0L, 0L), apps.map { it.centavos })
         assertEquals(52, apps[0].participacao)
     }
 

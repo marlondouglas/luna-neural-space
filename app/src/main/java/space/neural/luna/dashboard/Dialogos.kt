@@ -25,7 +25,7 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
     private val ui = Ui(act)
     private val prefs = act.getSharedPreferences("dashboard", 0)
 
-    private fun campo(dica: String, valor: String = "", decimal: Boolean = true) = EditText(act).apply {
+    fun campo(dica: String, valor: String = "", decimal: Boolean = true) = EditText(act).apply {
         hint = dica; setText(valor); setSingleLine()
         setTextColor(Cores.BRANCO); setHintTextColor(Cores.BRANCO_70); textSize = 18f
         inputType = if (decimal) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
@@ -33,12 +33,14 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         minHeight = ui.dp(48)
     }
 
-    private fun corpo(): LinearLayout = ui.vbox(ui.dp(20))
+    fun corpo(): LinearLayout = ui.vbox(ui.dp(20))
 
     /** Grupo de escolha única com botões (≥48dp). */
     private fun escolha(opcoes: List<Pair<String, String>>, inicial: String, aoMudar: (String) -> Unit = {}): Pair<LinearLayout, () -> String> {
         var atual = inicial
-        val linha = ui.hbox()
+        // Até 3 por linha (5 fontes de ganho cabem em 2 linhas no telefone).
+        val grade = ui.vbox()
+        var linha = ui.hbox()
         val botoes = mutableListOf<android.widget.Button>()
         fun pintar() {
             botoes.forEachIndexed { i, b ->
@@ -51,13 +53,15 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         opcoes.forEachIndexed { i, (id, nome) ->
             val b = ui.botao(nome) { atual = id; pintar(); aoMudar(id) }
             botoes += b
-            linha.addView(b, ui.peso(1f, if (i == 0) 0 else ui.dp(8)))
+            if (i % 3 == 0) { linha = ui.hbox(); grade.addView(linha, ui.mp(if (i == 0) 0 else ui.dp(8))) }
+            linha.addView(b, ui.peso(1f, if (i % 3 == 0) 0 else ui.dp(8)))
         }
+        if (opcoes.size > 3) repeat((3 - opcoes.size % 3) % 3) { linha.addView(android.view.View(act), ui.peso(1f, ui.dp(8))) }
         pintar()
-        return linha to { atual }
+        return grade to { atual }
     }
 
-    private fun erro(msg: String) = Toast.makeText(act, msg, Toast.LENGTH_SHORT).show()
+    fun erro(msg: String) = Toast.makeText(act, msg, Toast.LENGTH_SHORT).show()
 
     /** Lançar (ou editar) um ganho. [app] pré-seleciona o aplicativo. */
     fun ganho(data: String, turnoId: String?, app: String? = null, existente: Ganho? = null, depois: () -> Unit = {}) {
@@ -192,6 +196,30 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val cent = Calculos.parseCentavos(v.text.toString()) ?: return@setOnClickListener erro("Digite um valor maior que zero.")
                 scope.launch { repo.salvarMeta(Meta(data = LocalDate.now().toString(), tipo = tipo, valorCentavos = cent)) }
+                dlg.dismiss()
+            }
+        }
+        dlg.show(); v.requestFocus()
+    }
+
+    /** Gasto pessoal num envelope (ex.: Supermercado): não entra no líquido do trabalho. */
+    fun gastoEnvelope(l: space.neural.luna.data.local.Limite, restanteCentavos: Long) {
+        val c = corpo()
+        c.addView(ui.text("Ainda pode gastar ${Fmt.reais(restanteCentavos)} em ${l.nome} este mês.", 15f, Cores.BRANCO_70))
+        val v = campo("Valor (R$)")
+        val d = campo("Descrição (opcional)", decimal = false)
+        c.addView(v, ui.mp(ui.dp(12))); c.addView(d, ui.mp(ui.dp(8)))
+        val dlg = AlertDialog.Builder(act).setTitle("Gasto em ${l.nome}").setView(c)
+            .setPositiveButton("Salvar", null).setNegativeButton("Cancelar", null).create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val cent = Calculos.parseCentavos(v.text.toString()) ?: return@setOnClickListener erro("Digite um valor maior que zero.")
+                scope.launch {
+                    repo.salvarGasto(Gasto(data = LocalDate.now().toString(), categoria = CategoriaGasto.OUTRO, valorCentavos = cent,
+                        descricao = d.text.toString().trim().ifEmpty { l.nome }, limiteId = l.id))
+                }
+                val sobra = restanteCentavos - cent
+                Toast.makeText(act, if (sobra >= 0) "Agora você pode gastar ${Fmt.reais(sobra)} em ${l.nome}." else "Passou ${Fmt.reais(-sobra)} do limite de ${l.nome}.", Toast.LENGTH_LONG).show()
                 dlg.dismiss()
             }
         }
