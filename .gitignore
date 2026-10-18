@@ -1,0 +1,19 @@
+# Gradle / build
+.gradle/
+build/
+/app/build/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Local config and secrets (never commit)
+local.properties
+app/google-services.json
+google-services.json
+*.jks
+*.keystore
+keystore.properties

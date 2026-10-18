@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">LUNA Neural Space</string>
+    <string name="voice_channel_name">Sala de voz</string>
+    <string name="voice_notification_title">Na sala de voz</string>
+    <string name="voice_notification_text">Você continua na ligação com os parceiros.</string>
+    <string name="voice_leave">Sair da sala</string>
+</resources>

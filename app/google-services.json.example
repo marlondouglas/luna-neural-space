@@ -1,0 +1,20 @@
+{
+  "_LEIA_ISTO": "ARQUIVO DE EXEMPLO. NÃO FUNCIONA. Baixe o google-services.json verdadeiro no Firebase Console (app Android space.neural.luna) e salve como app/google-services.json. Esse arquivo fica fora do Git (.gitignore).",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "SEU-PROJETO-FIREBASE",
+    "storage_bucket": "SEU-PROJETO-FIREBASE.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "android_client_info": { "package_name": "space.neural.luna" }
+      },
+      "oauth_client": [],
+      "api_key": [ { "current_key": "COLOQUE_AQUI_A_CHAVE_DO_ARQUIVO_REAL" } ],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+    }
+  ],
+  "configuration_version": "1"
+}
