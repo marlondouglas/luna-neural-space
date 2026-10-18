@@ -75,7 +75,7 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito:
 
     fun bind(p: Painel, online: Boolean, nuvem: Boolean) {
         val h = LocalTime.now().hour
-        saudacao.text = (if (h < 12) "Bom dia" else if (h < 18) "Boa tarde" else "Boa noite") + ", Marlon"
+        saudacao.text = (if (h < 12) "Bom dia" else if (h < 18) "Boa tarde" else "Boa noite") + space.neural.luna.conta.Conta.vocativo()
         data.text = Fmt.dataCurta(p.hoje)
         val vivo = p.turno?.estado == EstadoTurno.ATIVO
         aoVivo.visibility = if (vivo) View.VISIBLE else View.GONE
@@ -270,7 +270,7 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
             else -> Cores.BRANCO
         })
         parado.text = when {
-            fase == MaquinaTurno.Fase.CONCLUIDO -> "Bom descanso, Marlon. 💜"
+            fase == MaquinaTurno.Fase.CONCLUIDO -> "Bom descanso${space.neural.luna.conta.Conta.vocativo()}. 💜"
             t == null || t.estado == EstadoTurno.PRONTO -> "Pronto para iniciar"
             else -> "Parado: ${Fmt.minutos(Calculos.paradoMs(t, agora))} min"
         }

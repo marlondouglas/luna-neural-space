@@ -26,7 +26,11 @@ object Conta {
 
     fun logado(): Boolean = usuario() != null
 
-    fun nome(): String = usuario()?.displayName.orEmpty()
+    fun nome(): String = runCatching { usuario()?.displayName }.getOrNull().orEmpty()
+    /** Primeiro nome do cadastro ("" sem conta). */
+    fun primeiroNome(): String = nome().trim().split(Regex("\\s+")).firstOrNull().orEmpty().take(20)
+    /** ", Ana" para saudações ("Boa tarde, Ana"); "" sem nome. */
+    fun vocativo(): String = primeiroNome().let { if (it.isBlank()) "" else ", $it" }
     fun exibicao(): String = ContaLogica.exibir(usuario()?.email)
 
     class ErroConta(msg: String) : Exception(msg)

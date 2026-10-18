@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "tsc -p tsconfig.test.json && echo '{\"type\":\"module\"}' > build-test/package.json && node --test test/",
+    "test": "tsc -p tsconfig.test.json && echo '{\"type\":\"module\"}' > build-test/package.json && node --test test/license.test.mjs",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

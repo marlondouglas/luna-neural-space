@@ -185,7 +185,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
         orb.ativa = true; orb.ouvindo = true; fundo.intenso = true
         mic.imageTintList = android.content.res.ColorStateList.valueOf(Cores.CIANO)
         mic.contentDescription = "Ouvindo. Toque para parar"
-        titulo.text = "Ouvindo…"; sub.text = parcial?.takeIf { it.isNotBlank() } ?: "Pode falar, Marlon"
+        titulo.text = "Ouvindo…"; sub.text = parcial?.takeIf { it.isNotBlank() } ?: "Pode falar${space.neural.luna.conta.Conta.vocativo()}"
         botoes.visibility = View.GONE
     }
 

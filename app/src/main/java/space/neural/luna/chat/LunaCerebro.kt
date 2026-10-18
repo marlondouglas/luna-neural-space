@@ -38,7 +38,7 @@ class RemotoCerebro(private val endpoint: String = BuildConfig.LUNA_CHAT_ENDPOIN
             put("messages", JSONArray().apply {
                 historico.takeLast(12).forEach { put(JSONObject().put("role", it.role).put("content", it.content.take(1000))) }
             })
-            put("context", painel.contexto())
+            put("context", painel.contexto().apply { space.neural.luna.conta.Conta.primeiroNome().takeIf { it.isNotBlank() }?.let { put("motorista", it) } })
         }.toString()
         val c = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"; doOutput = true
@@ -98,7 +98,7 @@ class LocalCerebro : LunaCerebro {
             tem(q, "ganh", "quanto", "fiz", "liquido", "bruto", "resumo") ->
                 if (!r.temGanho) "Ainda não tem corrida lançada hoje. Quando lançar, eu te conto tudo."
                 else "Hoje: bruto ${Fmt.reais(r.brutoCentavos)}, gastos ${Fmt.reais(r.gastosCentavos)}, líquido ${Fmt.reais(r.liquidoCentavos)}. " + meta(dia, "do dia")
-            tem(q, "oi", "ola", "bom dia", "boa tarde", "boa noite") -> "Oi, Marlon! " + if (r.temGanho) "Hoje você já fez ${Fmt.reais(r.liquidoCentavos)} de líquido." else "Pronto para começar?"
+            tem(q, "oi", "ola", "bom dia", "boa tarde", "boa noite") -> "Oi${space.neural.luna.conta.Conta.vocativo()}! " + if (r.temGanho) "Hoje você já fez ${Fmt.reais(r.liquidoCentavos)} de líquido." else "Pronto para começar?"
             tem(q, "obrigad", "valeu") -> "Por nada! Boa rota e bom trabalho. 💜"
             else -> "Estou sem internet agora, então respondo o básico: ganhos, metas, turno, energia, dicas e versículo. " +
                 "Também lanço corridas: diga, por exemplo, \"30 na Uber\"."

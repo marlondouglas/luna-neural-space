@@ -134,8 +134,8 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
                 if (Encerrar.deveParar(t)) {
                     ativa = false
                     LunaVoz.comunicacao = false
-                    ouvinte.encerrou("Até já, Marlon! 💜")
-                    LunaVoz.falar(act, "Tá bom. Até já, Marlon!", fixa = true)
+                    ouvinte.encerrou("Até já${space.neural.luna.conta.Conta.vocativo()}! 💜")
+                    LunaVoz.falar(act, "Tá bom. Até já${space.neural.luna.conta.Conta.vocativo()}!", fixa = true)
                     return
                 }
                 ouvinte.ouviu(t)

@@ -149,7 +149,7 @@ class ChatActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val h = conversa.historico()
             if (h.isEmpty()) {
-                bolha("Oi, Marlon! Sou a Luna. Posso te contar como está o dia, quanto falta para a meta, ler a foto de uma nota fiscal ou lançar uma corrida — é só dizer, por exemplo, \"30 na Uber\".", false)
+                bolha("Oi${space.neural.luna.conta.Conta.vocativo()}! Sou a Luna. Posso te contar como está o dia, quanto falta para a meta, ler a foto de uma nota fiscal ou lançar uma corrida — é só dizer, por exemplo, \"30 na Uber\".", false)
             } else h.forEach { bolha(it.content, it.role == "user", animar = false) }
             intent.getStringExtra(EXTRA_PERGUNTA)?.takeIf { savedInstanceState == null }?.let { enviar(it) }
         }
