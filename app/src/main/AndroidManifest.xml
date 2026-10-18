@@ -26,6 +26,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".teste.TesteFirebaseActivity"
+            android:exported="false"
+            android:label="@string/teste_firebase" />
+
         <!-- Mantém o usuário na sala de voz com o app minimizado. -->
         <service
             android:name=".voice.VoiceRoomService"

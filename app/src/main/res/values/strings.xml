@@ -4,4 +4,6 @@
     <string name="voice_notification_title">Na sala de voz</string>
     <string name="voice_notification_text">Você continua na ligação com os parceiros.</string>
     <string name="voice_leave">Sair da sala</string>
+    <string name="teste_firebase">Teste Firebase</string>
+    <string name="lancar_ganho_teste">Lançar ganho de teste</string>
 </resources>
