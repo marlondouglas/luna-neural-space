@@ -148,6 +148,10 @@ export async function handleLicenseClaim(request: Request, env: LicenseEnv): Pro
 /**
  * Trava no servidor para /chat, /tts e /receipt: sem conta, com teste vencido ou versão antiga, recusa.
  * Retorna null se pode seguir. Desligada se LICENSE_ENFORCE != "1".
+ *
+ * SOS NUNCA passa por aqui: segurança do motorista vem antes da assinatura. Rotas de SOS
+ * (ex.: POST /sos do Rádio, alertas de emergência) devem funcionar com teste vencido, sem
+ * pagamento e em versão antiga — não chame requireLicense nelas (só autenticação/antiabuso).
  */
 export async function requireLicense(request: Request, env: LicenseEnv): Promise<Response | null> {
   if (env.LICENSE_ENFORCE !== "1") return null;

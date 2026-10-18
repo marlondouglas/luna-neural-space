@@ -150,7 +150,11 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private var bloqueada = false
     private lateinit var bannerTeste: android.widget.TextView
 
-    /** Sem conta -> login; teste vencido / versão antiga / sem confirmação -> tela de licença. */
+    /**
+     * Sem conta -> login; teste vencido / versão antiga / sem confirmação -> tela de licença.
+     * SOS é exceção obrigatória: o botão/atalho de SOS (Rádio) e o serviço que o envia não podem
+     * passar por este portão nem pelo LicencaActivity — devem funcionar com teste vencido ou sem pagamento.
+     */
     private fun portaoLicenca(): Boolean {
         val l = space.neural.luna.licenca.Licenca
         if (!l.ativa && l.forcar == null) return true

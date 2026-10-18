@@ -23,6 +23,7 @@ import { LicenseEnv, handleAdmin, handleCoraWebhook, handleInfinitePayWebhook, h
  * Licença (teste grátis de 7 dias + assinatura), ver licenseRoutes.ts:
  *   POST /license/check, POST /license/claim, /admin/* (tools/unlock.sh), POST /webhook/cora (gancho),
  *   POST /webhook/infinitepay (por enquanto só registra a forma do payload).
+ *   SOS é sempre isento da licença: /sos (branch do Rádio) e qualquer rota de emergência NÃO chamam requireLicense.
  *   Com LICENSE_ENFORCE="1", /chat, /tts e /receipt exigem conta com teste/assinatura em dia
  *   (headers Authorization: Bearer <ID token Firebase>, X-Device-Id, X-App-Version).
  */

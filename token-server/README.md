@@ -70,6 +70,12 @@ POST /chat
 
 ## Licença: conta + teste grátis de 7 dias + assinatura (v0.1.6)
 
+> **SOS é sempre liberado.** A trava de licença (Worker `requireLicense` e o portão do app em
+> `MainActivity.portaoLicenca`/`LicencaActivity`) **nunca** pode bloquear SOS. Quando o Rádio entrar,
+> `POST /sos` e qualquer rota/tela de emergência ficam fora da licença: funcionam com teste vencido,
+> sem pagamento e mesmo em versão antiga (só autenticação e limite antiabuso).
+> Hoje só `/chat`, `/tts` e `/receipt` exigem licença.
+
 Código: `src/license.ts` (regras, assinatura, verificação do ID token do Firebase) e
 `src/licenseRoutes.ts` (rotas). Testes: `npm test`.
 
