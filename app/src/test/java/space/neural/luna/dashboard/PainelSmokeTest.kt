@@ -91,6 +91,10 @@ class PainelSmokeTest {
         val raiz = act.window.decorView
         assertTrue(raiz.width > 0)
         semEstouro(raiz)
+        // o título do card da Luna aparece inteiro (sem "Fale com a L…")
+        fun achar(v: View): android.widget.TextView? = if (v is android.widget.TextView && v.text.toString() == "Fale com a Luna…") v
+            else (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { achar(g.getChildAt(it)) } }
+        achar(raiz)?.let { tv -> tv.layout?.let { l -> assertTrue("título da Luna cortado em $nome", (0 until l.lineCount).all { l.getEllipsisCount(it) == 0 }) } }
         print(raiz, nome)
         listOf(space.neural.luna.R.id.rolagem_principal, space.neural.luna.R.id.rolagem_esquerda, space.neural.luna.R.id.rolagem_direita, space.neural.luna.R.id.rolagem_col1, space.neural.luna.R.id.rolagem_col2, space.neural.luna.R.id.rolagem_col3)
             .mapNotNull { act.findViewById<android.widget.ScrollView>(it) }

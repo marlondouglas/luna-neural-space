@@ -137,8 +137,13 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     }
     /** v0.1.5: a Luna de verdade (foto animada: respira, pisca e fala com a boca sincronizada). */
     private val orb = space.neural.luna.avatar.LunaAvatarView(ui.ctx)
-    private val titulo = ui.text("Fale com a Luna…", 18f, Cores.BRANCO, bold = true).apply { setShadowLayer(10f, 0f, 0f, Cores.alpha(Cores.OBSIDIAN, 0.6f)) }
-    private val sub = ui.text("Toque para falar · toque duas vezes para abrir a conversa", 13f, Cores.alpha(Cores.BRANCO, 0.85f))
+    /** Uma linha que encolhe a fonte (18 → 13 sp) para caber inteira, em vez de cortar em "Fale com a L…". */
+    private val titulo = ui.ajustavel("Fale com a Luna…", 18f, 13f).apply { ellipsize = android.text.TextUtils.TruncateAt.END; setShadowLayer(10f, 0f, 0f, Cores.alpha(Cores.OBSIDIAN, 0.6f)) }
+    /** Tela estreita (telefone em pé): legenda curta e botões menores, para "Fale com a Luna…" caber inteiro. */
+    private val estreito = ui.ctx.resources.configuration.screenWidthDp < 480
+    private val subPadrao = if (estreito) "Toque: falar · 2 toques: conversa" else "Toque para falar · toque duas vezes para abrir a conversa"
+    private val subDeNovo = if (estreito) "Toque: falar de novo · 2 toques: conversa" else "Toque para falar de novo · duas vezes para a conversa"
+    private val sub = ui.text(subPadrao, 13f, Cores.alpha(Cores.BRANCO, 0.85f))
     private val resposta = ui.text("", 15f, Cores.BRANCO).apply { visibility = View.GONE; maxLines = 4; ellipsize = android.text.TextUtils.TruncateAt.END }
     private val botoes = ui.hbox().apply { visibility = View.GONE }
     private val mic = ui.botaoIcone(R.drawable.ic_mic, "Falar com a Luna", Cores.BRANCO) { aoFalar() }.apply {
@@ -153,14 +158,16 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     init {
         val l = ui.hbox().apply { gravity = Gravity.CENTER_VERTICAL }
         orb.setOnClickListener { aoFalar() }
-        l.addView(orb, LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)))
+        val orbDp = if (estreito) 54 else 64
+        l.addView(orb, LinearLayout.LayoutParams(ui.dp(orbDp), ui.dp(orbDp)))
         val t = ui.vbox(); t.addView(titulo); t.addView(sub, ui.mp(ui.dp(2)))
-        ui.truncar(titulo, 1); ui.truncar(sub, 2)
-        l.addView(t, ui.peso(1f, ui.dp(10)))
+        ui.truncar(sub, 2)
+        l.addView(t, ui.peso(1f, ui.dp(if (estreito) 8 else 10)))
         // botões sempre dentro do card (peso 0, tamanho fixo): o texto encolhe, nada passa da borda
-        l.addView(camera, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)).apply { leftMargin = ui.dp(6) })
-        l.addView(mic, LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)).apply { leftMargin = ui.dp(6) })
-        l.addView(ui.botaoIcone(R.drawable.ic_chat, "Abrir conversa com a Luna", Cores.BRANCO) { aoAbrir() }, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)).apply { leftMargin = ui.dp(2) })
+        val b = if (estreito) 46 else 48; val gap = if (estreito) 4 else 6
+        l.addView(camera, LinearLayout.LayoutParams(ui.dp(b), ui.dp(b)).apply { leftMargin = ui.dp(gap) })
+        l.addView(mic, LinearLayout.LayoutParams(ui.dp(b + 4), ui.dp(b + 4)).apply { leftMargin = ui.dp(gap) })
+        l.addView(ui.botaoIcone(R.drawable.ic_chat, "Abrir conversa com a Luna", Cores.BRANCO) { aoAbrir() }, LinearLayout.LayoutParams(ui.dp(b), ui.dp(b)).apply { leftMargin = ui.dp(2) })
         view.addView(l, ui.mp())
         view.addView(resposta, ui.mp(ui.dp(8)))
         view.addView(botoes, ui.mp(ui.dp(8)))
@@ -197,7 +204,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     fun resposta(r: LunaConversa.Resposta) {
         pararOuvir()
         orb.ativa = false; fundo.intenso = false
-        titulo.text = "Luna"; sub.text = "Toque para falar de novo · duas vezes para a conversa"
+        titulo.text = "Luna"; sub.text = subDeNovo
         resposta.text = r.texto; resposta.visibility = View.VISIBLE
         resposta.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         botoes.removeAllViews()
@@ -212,7 +219,7 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
         pararOuvir()
         orb.ativa = false; fundo.intenso = false
         titulo.text = "Fale com a Luna…"
-        sub.text = msg ?: "Toque para falar · toque duas vezes para abrir a conversa"
+        sub.text = msg ?: subPadrao
     }
 }
 

@@ -261,10 +261,16 @@ class LunaOrbView(ctx: Context, private val mostrarAvatar: Boolean = true) : Vie
         anel.shader = aro; anel.pathEffect = null; anel.strokeWidth = larg * (if (ativa) 1.6f else 1.1f); anel.color = Cores.BRANCO
         c.drawCircle(cx, cy, R, anel); anel.shader = null
 
-        // Anéis (metade da frente)
+        // Anéis (metade da frente): só FORA do disco da Luna (aro + margem), para nunca cruzar o rosto
+        disco.reset(); disco.addCircle(cx, cy, R + larg * 2.2f, Path.Direction.CW)
+        c.save()
+        if (android.os.Build.VERSION.SDK_INT >= 26) c.clipOutPath(disco)
+        else @Suppress("DEPRECATION") c.clipPath(disco, android.graphics.Region.Op.DIFFERENCE)
         anelOrbital(c, -18f, 1.42f, Cores.CIANO, true, fase * 2, larg)
         anelOrbital(c, 24f, 1.28f, Cores.MAGENTA, true, -fase * 3, larg * 0.8f)
+        c.restore()
     }
+    private val disco = Path()
 
     private fun desenharAvatar(c: Canvas, cx: Float, cy0: Float, u: Float) {
         val bob = sin(fase * 2 * Math.PI * 6).toFloat() * 0.8f * u
