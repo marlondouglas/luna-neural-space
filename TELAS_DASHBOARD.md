@@ -307,3 +307,26 @@ Coluna 1: Turno + Resumo do dia. Coluna 2: Metas + Ganhos por app. Coluna 3: Not
 4. **Início da semana e do mês nas metas:** semana começa na segunda ou no domingo? A meta semanal/mensal é definida pelo Marlon ou calculada a partir da meta diária?
 5. **Fonte dos avisos da BR-381:** a spec cita a BR-381, mas não diz de onde vêm os avisos (ex.: PRF, concessionária, notícias do Diário do Rio Doce).
 6. **Preço do kWh:** para calcular o custo de energia pelos kWh, de onde vem o preço por kWh (valor fixo informado pelo Marlon ou por recarga)?
+
+---
+
+## 10. Decisões da implementação (v0.1.3)
+
+Respostas provisórias às questões em aberto (seção 9), escolhidas pela opção mais simples. Podem ser trocadas depois.
+
+1. **Limiar do alerta motivacional:** 80% e 100%, uma vez por meta, por período e por limiar. Ao bater 100%, o alerta de 80% daquele período é dado como visto.
+2. **Meta sobre bruto ou líquido:** líquido (bruto − gastos). O bruto aparece no texto do leitor de tela.
+3. **Sugestão de parar:** aparece com o turno trabalhando, depois de 2 h de trabalho, quando o ganho por hora líquido fica abaixo de **R$ 20/h**. "Agora não" esconde por 1 hora.
+4. **Semana e mês:** a semana começa na **segunda-feira**; o mês é o mês do calendário. As três metas (dia, semana, mês) são definidas pelo Marlon, cada uma separada, e a última definida vale até ser trocada.
+5. **Avisos da BR-381:** busca do Google Notícias por "BR-381" + Valadares (últimos 3 dias). As manchetes do Diário do Rio Doce vêm do Google Notícias filtrado pelo site drd.com.br. O clima vem da Open-Meteo (sem chave).
+6. **Preço do kWh:** informado pelo Marlon na hora de lançar a recarga por kWh; o último preço fica salvo e vem preenchido na próxima vez.
+
+Outras escolhas:
+- **Concluir** e **Zerar** levam o turno para o histórico (estado CONCLUIDO) e o painel volta para "Sem turno" com o resumo zerado. Zerar pede confirmação e não passa pela correção.
+- **Fechar turno** liga ao turno os lançamentos do dia feitos sem turno e sempre abre a tela de correção (início, fim, ganhos e gastos).
+- O **resumo do dia** e os **ganhos por app** mostram o dia atual até o turno ser concluído; as **metas** somam todos os lançamentos do período, mesmo de turnos concluídos.
+- **Puxar para atualizar** virou um botão ⟳ no card de notícias.
+- **Voz:** o microfone usa o ditado do Android na tela "Conversar com a Luna" ("30 na Uber" → a Luna pergunta "é o total ou a mais?"; "pausar", "café", "retomar", "iniciar turno"). Os alertas e a dica podem ser lidos em voz alta (texto para fala do Android).
+- **Orb flutuante** (spec 3) ainda não foi feita: o avatar da Luna aparece como orb animado no cabeçalho e na conversa.
+- Tablet/central paisagem: cada coluna rola sozinha se o conteúdo não couber na altura da tela.
+- Em telas deitadas com menos de 480dp de altura (telefone), o layout usa 2 colunas, mesmo quando a largura passa de 840dp.

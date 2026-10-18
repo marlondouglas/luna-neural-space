@@ -1,0 +1,8 @@
+<resources>
+    <item name="rolagem_principal" type="id" />
+    <item name="rolagem_esquerda" type="id" />
+    <item name="rolagem_direita" type="id" />
+    <item name="rolagem_col1" type="id" />
+    <item name="rolagem_col2" type="id" />
+    <item name="rolagem_col3" type="id" />
+</resources>

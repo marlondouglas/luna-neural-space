@@ -1,5 +1,23 @@
 <resources>
-    <style name="Theme.Luna" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.Luna" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@color/obsidian</item>
+        <item name="colorPrimary">@color/violeta</item>
+        <item name="colorPrimaryDark">@color/obsidian</item>
+        <item name="colorAccent">@color/violeta</item>
+        <item name="colorControlNormal">@color/branco</item>
+        <item name="android:textColorPrimary">@color/branco</item>
+        <item name="android:statusBarColor">@color/obsidian</item>
+        <item name="android:navigationBarColor">@color/obsidian</item>
+        <item name="alertDialogTheme">@style/Theme.Luna.Dialog</item>
+        <item name="android:datePickerDialogTheme">@style/Theme.Luna.Dialog</item>
+        <item name="android:timePickerDialogTheme">@style/Theme.Luna.Dialog</item>
+    </style>
+
+    <style name="Theme.Luna.Dialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="colorAccent">@color/violeta</item>
+        <item name="android:colorAccent">@color/violeta</item>
+        <item name="colorControlActivated">@color/violeta</item>
+        <item name="android:textColorPrimary">@color/branco</item>
+        <item name="android:windowBackground">@drawable/dialog_fundo</item>
     </style>
 </resources>
