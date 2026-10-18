@@ -12,6 +12,7 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 - **Turno:** controle da jornada de trabalho do dia.
 - **Ganhos e gastos por aplicativo:** 99, Uber e InDrive.
 - **Metas:** acompanhamento do quanto falta para bater a meta.
+- **Custo de energia:** gasto com a recarga elétrica do carro (Geely), não combustível.
 - **Notícias e clima locais:** fontes como o Diário do Rio Doce e informações da BR-381.
 - **Dicas** para o dia a dia do motorista.
 - **Mensagens bíblicas.**
@@ -44,11 +45,12 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 - **Zerar:** recomeça o turno, mas **os ganhos continuam no histórico**.
 - **Pausa:** o tempo pausado conta como **minutos parado**, separado do **tempo de trabalho**.
 - **Café:** funciona **igual à pausa**.
-- **Fechar turno:** abre uma **tela de correção** com:
+- **Fechar turno:** **encerra o turno** e abre a **tela de correção** com:
   - ganhos;
   - gastos;
   - horário de início e de fim.
   - Exemplo: o turno marcou início ao meio-dia, mas o motorista começou às 6h — ele corrige o início para 6h.
+- **Concluir:** **finaliza o dia** e **salva o resumo no histórico**.
 
 ### 2.2 Lançamentos por voz
 - Quando o motorista fala um valor, a Luna **pergunta se o valor é o total ou um valor a mais** (somado ao que já existe).
@@ -58,7 +60,9 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 
 ### 2.4 Acompanhamento e alertas
 - **Alerta motivacional** quando o motorista estiver **perto da meta**.
-- **Custo de energia do dia.**
+- **Custo de energia do dia:** custo da **recarga elétrica do Geely** (não é combustível). Pode ser lançado de dois jeitos:
+  - o Marlon **informa o valor gasto**; ou
+  - o app **calcula a partir dos kWh lançados**.
 - **Sugestão de parar** quando o **ganho por hora cair**.
 - Mostrar os valores **bruto e líquido**.
 
@@ -67,32 +71,37 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 - A Luna é **híbrida e local**: roda no celular e **aprende sozinha** com o uso.
 
 ### 2.6 Dados
-- **Sem backup:** os dados ficam **só no celular**.
-- **Firebase (plano gratuito Spark)** para **sincronizar quando houver internet**.
-- Ver a seção "Questões em aberto" sobre como essas duas decisões convivem.
+- **Sem backup:** os dados — **turno, ganhos, gastos, metas e anotações** — ficam **só no celular**.
+- **Sincronização com o Firebase (plano gratuito Spark):** quando houver internet, esses **mesmos dados** são enviados para a nuvem.
+- **Regras de segurança:** cada usuário **só vê os próprios dados**.
 
 **Critérios de aceite**
 - [ ] Depois de zerar, os ganhos anteriores continuam visíveis no histórico.
 - [ ] Pausa e café somam em "minutos parado" e não entram no tempo de trabalho.
-- [ ] Fechar turno sempre abre a tela de correção antes de salvar.
+- [ ] Fechar turno encerra o turno e sempre abre a tela de correção antes de salvar.
+- [ ] Concluir finaliza o dia e salva o resumo no histórico.
+- [ ] O custo de energia aceita o valor gasto na recarga ou é calculado pelos kWh lançados.
 - [ ] Na tela de correção, é possível editar ganhos, gastos, início e fim.
 - [ ] Ao falar um valor, a Luna pergunta "total ou a mais?" antes de salvar.
 - [ ] É possível lançar ganhos e gastos de um dia anterior pelo calendário.
 - [ ] Os valores bruto e líquido aparecem juntos.
-- [ ] Sem internet, turno, ganhos, gastos, metas e calendário funcionam normalmente.
+- [ ] Sem internet, turno, ganhos, gastos, metas, anotações e calendário funcionam normalmente.
+- [ ] Com internet, turno, ganhos, gastos, metas e anotações sincronizam com o Firebase.
+- [ ] Um usuário nunca consegue ler nem alterar os dados de outro usuário no Firebase.
 
 ---
 
 ## 3. Orb flutuante
 
 ### 3.1 Comportamento
-- **Fechar o app mostra a orb**, com um **contador**.
+- **Minimizar o app mostra a orb.**
+- **Fechar o app** faz a orb **sumir**. Para trazer a orb de volta, basta **minimizar o app**.
+- **Contador:** mostra o **tempo do turno atual**, contando **só o tempo de trabalho** (sem pausa e sem café).
 - **Dois toques** na orb **abrem o app**.
 - **Um toque** abre o **menu da orb**.
-- A orb é **arrastável** pela tela.
-- **Arrastar** a orb (para fora da tela) **esconde** a orb, mas **o app continua rodando**.
-- **Xizinho:** fecha **só a orb**.
-- **Botão fechar:** **encerra o app de vez** e **derruba a ligação**.
+- **Arrastar** a orb **move** a orb pela tela. Não existe gesto separado de "arrastar pra esconder".
+- **Xizinho:** fica **na própria orb** e fecha **só a orb**.
+- **Botão fechar do app:** fica **fora da orb, no sistema Android**. **Encerra o app de vez** e **derruba a ligação**, se houver uma ativa.
 - A orb mostra o **turno** e o **estado** (pausado ou café).
 
 ### 3.2 Menu da orb
@@ -101,8 +110,8 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
   2. Pausar
   3. Zerar
   4. Café
-  5. Fechar turno
-  6. Concluir
+  5. Fechar turno — encerra o turno e abre a tela de correção
+  6. Concluir — finaliza o dia e salva o resumo no histórico
   7. Microfone
 - O menu **só fecha quando o motorista clica para fechar**.
 
@@ -113,28 +122,33 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 | Um toque na orb              | Abre o menu                                 |
 | Dois toques na orb           | Abre o app                                  |
 | Arrastar a orb               | Move a orb pela tela                        |
-| Arrastar a orb para fora     | Esconde a orb; o app continua rodando       |
-| Tocar no xizinho             | Fecha só a orb                              |
-| Tocar no botão fechar        | Encerra o app de vez e derruba a ligação    |
+| Tocar no xizinho (na orb)    | Fecha só a orb                              |
+| Minimizar o app              | Mostra a orb                                |
+| Fechar o app (sistema Android) | Encerra o app de vez, a orb some e a ligação ativa cai |
 | Tocar para fechar o menu     | Fecha o menu (é a única forma de fechá-lo)  |
 
 **Critérios de aceite**
-- [ ] A orb aparece com o contador quando o app sai da tela.
+- [ ] A orb aparece com o contador quando o app é minimizado.
+- [ ] O contador mostra só o tempo de trabalho do turno atual e para durante pausa e café.
 - [ ] Um toque abre o menu; dois toques abrem o app; os dois nunca se confundem.
 - [ ] O menu tem os 7 botões listados, com a Luna no centro.
 - [ ] O menu não fecha sozinho depois de tocar em um botão.
 - [ ] A orb mostra o turno atual e indica quando está pausado ou no café.
-- [ ] Esconder a orb não para o turno nem o app.
-- [ ] O xizinho fecha só a orb; o botão fechar encerra o app e a ligação.
+- [ ] Arrastar a orb só muda a posição dela; nunca esconde, fecha ou aciona botões.
+- [ ] O xizinho fica na orb e fecha só a orb, sem parar o turno nem o app.
+- [ ] Fechar o app pelo Android encerra o app, faz a orb sumir e derruba a ligação ativa.
+- [ ] Depois de fechada, a orb volta quando o app é minimizado.
 
 ---
 
-## Questões em aberto
+## Decisões tomadas
 
-1. **Fechar o app × botão fechar:** "fechar o app mostra a orb" e "o botão fechar encerra o app de vez". A orb deve aparecer ao **minimizar** (sair do app sem encerrar) e o botão fechar encerra tudo sem orb?
-2. **Sem backup × Firebase:** "sem backup, dados só no celular" e "Firebase Spark para sincronizar". A sincronização com o Firebase é só para os dados compartilhados com o grupo, ou os dados pessoais também vão para a nuvem (o que, na prática, funciona como backup)?
-3. **Arrastar a orb:** como diferenciar "arrastar para mover" de "arrastar para esconder"? E como trazer de volta uma orb escondida?
-4. **Contador da orb:** o contador mostra o tempo de trabalho, o tempo total do turno ou os ganhos?
-5. **"Fechar turno" × "Concluir":** qual é a diferença entre esses dois botões do menu?
-6. **Onde ficam o xizinho e o botão fechar:** os dois ficam na orb, no menu ou em lugares diferentes?
-7. **Custo de energia do dia:** é o custo de combustível/recarga do veículo, informado pelo motorista ou calculado pelo app?
+1. **Quando a orb aparece:** a orb aparece ao **minimizar** o app; o botão fechar encerra o app de vez e derruba a ligação ativa (seção 3.1).
+2. **Dados e nuvem:** sem backup, os dados ficam só no celular; com internet, os mesmos dados sincronizam no Firebase Spark, e cada usuário só vê os próprios dados (seção 2.6).
+3. **Arrastar a orb:** arrastar só move a orb; ela some ao fechar o app e volta ao minimizar (seção 3.1).
+4. **Contador da orb:** tempo do turno atual, só o tempo de trabalho, sem pausa e café (seção 3.1).
+5. **Fechar turno × Concluir:** fechar turno encerra o turno e abre a tela de correção; concluir finaliza o dia e salva o resumo no histórico (seções 2.1 e 3.2).
+6. **Xizinho × botão fechar:** o xizinho fica na orb e fecha só a orb; o botão fechar do app fica fora da orb, no sistema Android (seção 3.1).
+7. **Custo de energia:** custo da recarga elétrica do Geely, não combustível; valor informado pelo Marlon ou calculado pelos kWh lançados (seções 1.1 e 2.4).
+
+> Observação: numa resposta anterior, "arrastar" também foi descrito como forma de esconder a orb; a regra que vale é que arrastar só move, e a orb é escondida ou mostrada ao fechar ou minimizar o app.
