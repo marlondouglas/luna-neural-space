@@ -1,0 +1,8 @@
+{
+  "name": "rotagv-firestore-rules-test",
+  "private": true,
+  "type": "module",
+  "description": "Testa firestore.rules no emulador (não publica nada). Uso: npm i && firebase emulators:exec --only firestore 'node sync.test.mjs'",
+  "scripts": { "test": "node sync.test.mjs" },
+  "dependencies": { "@firebase/rules-unit-testing": "^5.0.2", "firebase": "^12.19.0" }
+}
