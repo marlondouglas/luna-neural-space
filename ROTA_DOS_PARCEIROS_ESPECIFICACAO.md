@@ -41,22 +41,65 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 
 ## 2. Jornada
 
-### 2.1 Controles do turno
-- **Zerar:** recomeça o turno, mas **os ganhos continuam no histórico**.
-- **Pausa:** o tempo pausado conta como **minutos parado**, separado do **tempo de trabalho**.
-- **Café:** funciona **igual à pausa**.
-- **Fechar turno:** **encerra o turno** e abre a **tela de correção** com:
-  - ganhos;
-  - gastos;
-  - horário de início e de fim.
-  - Exemplo: o turno marcou início ao meio-dia, mas o motorista começou às 6h — ele corrige o início para 6h.
-- **Concluir:** **finaliza o dia** e **salva o resumo no histórico**.
+### 2.1 Controles do turno (v0.1.4 — substitui a regra anterior)
+- O dia tem **exatamente 4 turnos**, mostrados como **"Turno N/4"**.
+- Botões: **Iniciar**, **Pausar**, **Café**, **Retomar**, **Fechar turno**, e sempre visíveis **Concluir dia** e **Zerar tempo** (os dois pedem confirmação).
+- **Pausa / Café:** o tempo parado conta como **minutos parado**, separado do **tempo de trabalho**.
+- **Fechar turno N (1–3):** encerra o turno **sem abrir nenhuma tela** e o próximo fica **"Turno N+1/4 — pronto para iniciar"**. Correções de horário ficam no Calendário (dia) ou em "Corrigir turno".
+- **Depois de fechar o turno 4:** só existem **Retomar** (continua/estende o turno 4) ou **Concluir dia**. Não existe 5º turno.
+- **Zerar tempo:** zera o tempo do turno atual (trabalho e parado) e o deixa **pronto para iniciar**; **os ganhos continuam no histórico**.
+- **Concluir dia:** encerra o dia, salva o resumo no histórico; ganhos soltos são ligados ao último turno trabalhado e turnos que só estavam "prontos" são descartados. Pode ser reaberto no mesmo dia.
+- O cronômetro é **baseado no relógio** (início/último evento salvos no Room): matar o app ou reiniciar o celular não perde tempo.
+
+### 2.1.1 Fontes de ganho (5)
+| Fonte | Cor | Selo |
+|---|---|---|
+| 99 | Laranja `#FF9F43` | "99" |
+| Uber | Ciano `#49E0FF` | "U" |
+| InDrive | Esmeralda `#3EE0A0` | "iD" |
+| Gogeta | Magenta `#FF4FD8` | "G" |
+| Particular | Amarelo `#FFE15A` | "P" |
+
+As cinco aparecem em todo lugar: cards, rosca, ranking, gráficos, lançamento manual, detalhe/histórico, sincronização, chat ("30 na Gogeta", "50 particular", "corrida particular de 40") e contexto da IA.
+
+### 2.1.2 Planejamento (Configurações → Planejamento)
+As metas **não são mais digitadas no dashboard**; elas vêm do Planejamento:
+- **Dias de trabalho** em cada uma das 4 semanas do mês (semana 1 = dias 1–7, 2 = 8–14, 3 = 15–21, 4 = dia 22 até o fim), seg a dom.
+- **Ganho por hora típico** (líquido).
+- **Contas fixas** (nome, valor, dia de vencimento).
+- **Limites / envelopes** (ex.: Supermercado R$ 1.000, Lanche R$ 200).
+- **Renda desejada** (opcional).
+
+**Cálculo da sugestão**
+- `total do mês = contas fixas + limites + renda desejada`
+- `meta do dia = total ÷ dias de trabalho do mês` (arredonda para cima, ao centavo)
+- `meta da semana = meta do dia × dias de trabalho da semana atual`
+- `horas por dia = meta do dia ÷ ganho por hora`
+- **Recalcular** (depois de estourar um envelope): `necessário = total + excesso dos envelopes`; `falta = necessário − líquido do mês`; `nova meta do dia = falta ÷ dias de trabalho restantes (de hoje até o fim do mês)`.
+- O motorista **aceita** ou **edita** a sugestão; isso vira as metas Dia/Semana/Mês.
+
+### 2.1.3 Limites (envelopes) e foto da nota
+- Card **LIMITES DO MÊS**: gasto / limite, "Ainda pode gastar R$ X", barra; fica vermelho ao estourar.
+- Gastos de envelope (`gasto.limiteId`) são **pessoais**: **não** entram no líquido do trabalho (o total do plano já inclui os limites — evita contar duas vezes).
+- **Foto da nota no chat:** câmera ou galeria → reduzida para no máx. 1600 px JPEG → Worker `POST /receipt` (Gemini multimodal, resposta JSON: é compra?, loja, data, total, itens). A Luna resume e pergunta com botões **em qual limite** lançar (ou "gasto comum" / "não é compra"), confirma com **"Sim"**, salva e diz quanto sobrou.
+- Se o envelope estourar: "você gastou muito" e oferece **"Recalcular meu plano"** ou **"Deixar para o mês que vem"**. **Nada muda sem confirmação.**
 
 ### 2.2 Lançamentos por voz
 - Quando o motorista fala um valor, a Luna **pergunta se o valor é o total ou um valor a mais** (somado ao que já existe).
 
 ### 2.3 Calendário
-- Um calendário permite **lançar dias esquecidos**.
+- Grade do mês com navegação ‹ ›; **ponto verde** nos dias com lançamentos; hoje destacado.
+- Tocar num dia abre o dia: os **4 turnos** (início, término, pausas — ver e editar), horas, ganhos por app e gastos.
+- Dá para **lançar dias passados** (dias esquecidos). Corrigir o horário de início **recalcula as horas**.
+- **Dias futuros:** só visualização.
+
+### 2.3.1 Relatórios
+- Carrossel de blocos que **passa sozinho** (e pode ser arrastado): dias trabalhados no mês, horas dia/semana/mês, média R$/hora, média por dia, melhor dia, melhor app, gastos totais, corridas.
+- Tocar abre o **relatório completo** (destaques + tabela Hoje/Semana/Mês/Ano + apps no mês).
+
+### 2.3.2 Luna na tela inicial e histórico
+- Card da Luna logo abaixo de "Bom dia, Marlon" (no lugar do ícone de chat): **um toque** = fala por voz ali mesmo (resposta escrita e falada no card); **dois toques** ou "abrir conversa" = conversa completa.
+- O **histórico da conversa** (inclusive o que foi falado por voz, transcrito) fica salvo no Room do celular (não é sincronizado).
 
 ### 2.4 Acompanhamento e alertas
 - **Alerta motivacional** quando o motorista estiver **perto da meta**.
@@ -71,7 +114,7 @@ Documento de decisões do produto. Registra o que o app deve fazer, sem detalhar
 - A Luna é **híbrida e local**: roda no celular e **aprende sozinha** com o uso.
 
 ### 2.6 Dados
-- **Sem backup:** os dados — **turno, ganhos, gastos, metas e anotações** — ficam **só no celular**.
+- **Sem backup:** os dados — **turno, ganhos, gastos, metas, planejamento, contas fixas, limites e anotações** — ficam **só no celular**.
 - **Sincronização com o Firebase (plano gratuito Spark):** quando houver internet, esses **mesmos dados** são enviados para a nuvem.
 - **Regras de segurança:** cada usuário **só vê os próprios dados**.
 

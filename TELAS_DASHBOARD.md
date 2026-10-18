@@ -330,3 +330,48 @@ Outras escolhas:
 - **Orb flutuante** (spec 3) ainda não foi feita: o avatar da Luna aparece como orb animado no cabeçalho e na conversa.
 - Tablet/central paisagem: cada coluna rola sozinha se o conteúdo não couber na altura da tela.
 - Em telas deitadas com menos de 480dp de altura (telefone), o layout usa 2 colunas, mesmo quando a largura passa de 840dp.
+
+
+---
+
+## 11. v0.1.4 — "Bonito 3D" (substitui o que conflitar acima)
+
+### 11.1 Paleta neon ampliada
+A paleta de cinco cores ganhou cores de apoio (dados, apps e alertas):
+
+| Cor | Código | Uso |
+|---|---|---|
+| Magenta | `#FF4FD8` | Gogeta, aurora, degradê do card da Luna, ganho/hora |
+| Laranja | `#FF9F43` | 99, metas, contas fixas |
+| Coral | `#FF5C7A` | gastos, limite estourado, variação negativa |
+| Amarelo | `#FFE15A` | Particular |
+
+Cores dos apps: 99 = laranja, Uber = ciano, InDrive = esmeralda, Gogeta = magenta, Particular = amarelo — iguais em cards, rosca, ranking (selo com sigla), barras empilhadas, tabela e histórico. O valor negativo continua com "−" e ▼ (agora também em coral).
+
+### 11.2 Fundo e movimento
+- **Galáxia animada:** nebulosas (degradês radiais), 3 faixas de aurora (curvas suaves em 3 passadas de traço, sem blur), 90 estrelas piscando; ~24 fps, pausa quando invisível; **parada** com "reduzir animações".
+- Cards de **vidro** com brilho de borda e sombra colorida (3D); vários cards com **preenchimento em degradê** (KPIs, relatórios).
+- Entrada em cascata dos cards, gráficos que se desenham, valores com contagem; tudo desligado em "reduzir animações".
+
+### 11.3 Componentes novos
+- **Card da Luna** (abaixo do cabeçalho): degradê animado rosa/roxo/ciano, orb, "Fale com a Luna…", microfone e atalho para a conversa. 1 toque = voz inline; 2 toques = conversa.
+- **Faixa de KPIs:** Total líquido, Corridas, Ganho/hora, Meta — com pílula de variação (vs ontem) e selo **AO VIVO** pulsando no cabeçalho.
+- **Turno N/4:** orb 3D da Luna, cronômetro, botões por fase (ver especificação 2.1).
+- **Relatórios do mês:** carrossel automático (3,5 s; pausa 6 s ao tocar) → relatório completo.
+- **Seletor de período:** Hoje / Semana / Mês / Ano.
+- **Gráficos:** área com brilho (líquido 7 dias, pico marcado) e barras 3D empilhadas por app.
+- **Ranking dos apps** (selo, valor, corridas, %, barra 3D) e **Divisão do período** (roscas 3D ganhos/gastos).
+- **Calendário** com pontos verdes; toque abre o dia.
+- **Metas** (vêm do Planejamento) e **Limites do mês** (gasto/limite, "Ainda pode gastar", vermelho ao estourar).
+- **Últimos lançamentos** (tabela data/tipo/origem/valor).
+
+### 11.4 Layouts
+- **Telefone retrato:** Luna, KPIs 2×2, turno, relatórios, período, gráficos, ranking, roscas, calendário, metas, limites, resumo, lançamentos, notícias, dica.
+- **Telefone paisagem:** esquerda = turno, calendário, resumo, metas, limites; direita = Luna, KPIs 2×2, relatórios, gráficos…
+- **Tablet:** Luna e KPIs em 4; turno | metas+limites; relatórios; período; gráficos; ranking | roscas; calendário | resumo; lançamentos | notícias.
+- **Central Geely X2 (paisagem, 3 colunas):** Luna e KPIs no topo; col. 1 = turno, calendário, metas, limites, resumo; col. 2 = relatórios, período, gráficos, ranking; col. 3 = roscas, lançamentos, notícias, dica.
+
+### 11.5 Telas novas
+- **Configurações / Planejamento** (menu ⋮): dias de trabalho 4×7, ganho/hora, contas fixas, limites, renda desejada e sugestão de metas (Recalcular / Editar / Aceitar).
+- **Relatório completo** e **dia do calendário** (4 turnos editáveis, ganhos, gastos; pessoais de limite aparecem à parte).
+- **Conversa** com a Luna sobre o fundo de galáxia, com câmera/galeria para nota fiscal e botões de resposta.
