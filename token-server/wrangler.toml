@@ -11,7 +11,16 @@ LIVEKIT_API_KEY = "APIhv8yaezaW7g8"
 ROOM_PREFIX = "luna-"
 # Validade do token, em segundos (4 horas).
 TOKEN_TTL_SECONDS = "14400"
+# Modelo principal da conversa com a Luna (POST /chat): Gemini.
+GEMINI_MODEL = "gemini-flash-latest"
+# Modelo reserva do Workers AI, usado se o Gemini falhar.
+CHAT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+# Workers AI (plano gratuito), usado em POST /chat.
+[ai]
+binding = "AI"
 
 # Segredos (NUNCA neste arquivo):
 #   npx wrangler secret put LIVEKIT_API_SECRET
 #   npx wrangler secret put APP_SHARED_KEY   (opcional)
+#   npx wrangler secret put GEMINI_API_KEY   (chave do Gemini para /chat)

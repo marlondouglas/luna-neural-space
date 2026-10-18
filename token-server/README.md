@@ -52,3 +52,18 @@ LIVEKIT_API_SECRET=segredo-de-teste
 ```
 
 E rode `npx wrangler dev`. Depois abra `http://localhost:8787/token?room=luna-teste&identity=marlon`.
+
+## Conversa com a Luna (`POST /chat`)
+
+```
+POST /chat
+{"messages":[{"role":"user","content":"Quanto falta pra meta?"}], "context":{...resumo do dia...}}
+-> 200 {"reply":"...", "provider":"gemini" | "workers-ai"}
+```
+
+- Modelo principal: Gemini (`GEMINI_MODEL`, padrão `gemini-flash-latest`). Em 503/429 tenta `gemini-flash-lite-latest`.
+- Reserva automática: Workers AI (binding `AI`, modelo `CHAT_MODEL`).
+- Limites: até 12 mensagens, 1000 caracteres cada, contexto até 3000 caracteres, corpo até 32 KB.
+- Respeita `APP_SHARED_KEY`/`X-App-Key`, igual ao `/token`.
+- A chave do Gemini é segredo do Worker (nunca no repositório):
+  `printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY`
