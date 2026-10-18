@@ -16,6 +16,7 @@ import {
   verifyFirebaseIdToken,
   computeStatus,
   FirebaseUser,
+  payloadShape,
 } from "./license";
 
 /** Variáveis/segredos usados pela licença (ver wrangler.toml e README). */
@@ -29,6 +30,10 @@ export interface LicenseEnv {
   MAX_DEVICES?: string;
   MIN_VERSION_CODE?: string;
   DOWNLOAD_URL?: string;
+  /** Link de pagamento padrão (não é segredo). Pode ser trocado sem deploy: tools/unlock.sh checkout <url>. */
+  CHECKOUT_URL?: string;
+  /** Segredo do webhook da InfinitePay (?secret=... ou header X-Webhook-Secret). */
+  INFINITEPAY_WEBHOOK_SECRET?: string;
   /** "1" = /chat, /tts e /receipt exigem conta com teste ou assinatura em dia. */
   LICENSE_ENFORCE?: string;
 }
@@ -40,7 +45,21 @@ export function licenseConfig(env: LicenseEnv): LicenseConfig {
     maxDevices: Number(env.MAX_DEVICES ?? DEFAULT_MAX_DEVICES) || DEFAULT_MAX_DEVICES,
     minVersionCode: Number(env.MIN_VERSION_CODE ?? "0") || 0,
     downloadUrl: env.DOWNLOAD_URL ?? "",
+    checkoutUrl: safeHttps(env.CHECKOUT_URL),
   };
+}
+
+function safeHttps(u: string | null | undefined): string {
+  const t = (u ?? "").trim();
+  return /^https:\/\/[^\s"<>]{4,300}$/.test(t) ? t : "";
+}
+
+/** Config da licença com o link de pagamento do KV (config:checkoutUrl) por cima da variável. */
+async function licenseConfigKv(env: LicenseEnv): Promise<LicenseConfig> {
+  const cfg = licenseConfig(env);
+  const kv = env.LICENSES ? await env.LICENSES.get("config:checkoutUrl") : null;
+  if (kv !== null) cfg.checkoutUrl = kv === "-" ? "" : safeHttps(kv);
+  return cfg;
 }
 
 function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -102,7 +121,7 @@ export async function handleLicenseCheck(request: Request, env: LicenseEnv): Pro
   const { payload } = await checkLicense(
     env.LICENSES as unknown as Store,
     { uid: a.user.uid, email: a.user.email, device: a.device!, nonce, now: Date.now() },
-    licenseConfig(env),
+    await licenseConfigKv(env),
   );
   const text = JSON.stringify(payload);
   return json({ payload: text, sig: await signPayload(text, env.LICENSE_SIGNING_KEY) });
@@ -192,6 +211,17 @@ export async function handleAdmin(request: Request, env: LicenseEnv, path: strin
     return json({ claims: out.map((c: any) => ({ ...c, at: new Date(c.at).toISOString() })) });
   }
 
+  if (path === "/admin/webhooks" && request.method === "GET") {
+    const r = await store.list!({ prefix: "whlog:", limit: 50 });
+    const out = [];
+    for (const k of r.keys) {
+      const v = await store.get(k.name);
+      if (v) out.push(JSON.parse(v));
+    }
+    out.sort((x: any, y: any) => String(y.at).localeCompare(String(x.at)));
+    return json({ webhooks: out });
+  }
+
   let body: any = {};
   if (request.method === "POST") {
     try {
@@ -200,6 +230,18 @@ export async function handleAdmin(request: Request, env: LicenseEnv, path: strin
       return json({ error: "JSON inválido" }, 400);
     }
   }
+  if (path === "/admin/checkout" && request.method === "POST") {
+    // {"url":"https://..."} define; {"url":""} desliga (só Pix); {"url":null} volta para CHECKOUT_URL do wrangler.toml
+    if (body.url === null) await store.delete?.("config:checkoutUrl");
+    else {
+      const u = String(body.url ?? "").trim();
+      if (u && !safeHttps(u)) return json({ error: "URL inválida (use https://)" }, 400);
+      await store.put("config:checkoutUrl", u || "-");
+    }
+    return json({ checkoutUrl: (await licenseConfigKv(env)).checkoutUrl });
+  }
+  if (path === "/admin/checkout" && request.method === "GET") return json({ checkoutUrl: (await licenseConfigKv(env)).checkoutUrl });
+
   const q = String(body.q ?? url.searchParams.get("q") ?? "");
   const uid = await resolveUid(store, q);
   if (!uid) return json({ error: "Conta não encontrada", q }, 404);
@@ -230,4 +272,39 @@ export async function handleAdmin(request: Request, env: LicenseEnv, path: strin
  */
 export async function handleCoraWebhook(_request: Request, _env: LicenseEnv): Promise<Response> {
   return json({ error: "Webhook da Cora ainda não configurado" }, 501);
+}
+
+// ---------------- webhook InfinitePay (inspeção) ----------------
+/**
+ * POST /webhook/infinitepay?secret=<INFINITEPAY_WEBHOOK_SECRET>  (ou header X-Webhook-Secret)
+ * Por enquanto só confere o segredo, guarda a FORMA do payload no KV (whlog:*, 30 dias; sem dados pessoais,
+ * só ids/status/valores) para inspeção com tools/unlock.sh webhooks, e responde 200.
+ * TODO: quando virmos um payload real, mapear o pagamento para a conta e chamar
+ *   grantPaid(store, uid, { days: 30, source: "infinitepay", ref: <id da transação> }, Date.now())
+ */
+export async function handleInfinitePayWebhook(request: Request, env: LicenseEnv): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+  const secret = env.INFINITEPAY_WEBHOOK_SECRET ?? "";
+  const sent = new URL(request.url).searchParams.get("secret") ?? request.headers.get("x-webhook-secret") ?? "";
+  if (secret.length < 24 || !safeEqual(sent, secret)) return json({ error: "Não autorizado" }, 401);
+  const raw = (await request.text()).slice(0, 64 * 1024);
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    /* não é JSON */
+  }
+  const at = new Date().toISOString();
+  const entry = {
+    at,
+    contentType: request.headers.get("content-type") ?? "",
+    bytes: raw.length,
+    json: parsed !== null,
+    shape: parsed !== null ? payloadShape(parsed) : "não-JSON",
+  };
+  console.log("InfinitePay webhook", at, entry.bytes, "bytes");
+  if (env.LICENSES) {
+    await env.LICENSES.put(`whlog:infinitepay:${at}:${crypto.randomUUID().slice(0, 8)}`, JSON.stringify(entry), { expirationTtl: 30 * 86400 });
+  }
+  return json({ ok: true });
 }

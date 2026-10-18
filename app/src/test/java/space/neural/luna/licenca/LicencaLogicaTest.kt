@@ -151,6 +151,17 @@ class LicencaLogicaTest {
         assertNull(Payload.ler("lixo"))
     }
 
+    @Test fun linkDePagamento() {
+        val padrao = "https://checkout.infinitepay.io/mduseimports/nDdXiu2DrZ"
+        assertEquals("https://outro.example/x", LicencaLogica.linkPagamento("https://outro.example/x", padrao))
+        assertEquals(padrao, LicencaLogica.linkPagamento(null, padrao))
+        assertEquals(padrao, LicencaLogica.linkPagamento("http://inseguro.example", padrao))
+        assertEquals(padrao, LicencaLogica.linkPagamento("javascript:alert(1)", padrao))
+        assertEquals("", LicencaLogica.linkPagamento("", ""))
+        val json = """{"v":1,"status":"trial","uid":"u1","device":"dev","code":"K","trialStart":1,"trialEndsAt":2,"paidUntil":0,"serverTime":1,"graceMs":3,"minVersionCode":106,"downloadUrl":"","checkoutUrl":"https://c.example/p","nonce":"n"}"""
+        assertEquals("https://c.example/p", Payload.ler(json)!!.checkoutUrl)
+    }
+
     @Test fun hashDoAparelhoIgualAoDoWorker() {
         // mesmo valor do teste do Worker (deviceHash("9774d56d682e549c"))
         assertEquals(Licenca.deviceHash("9774D56D682E549C "), Licenca.deviceHash("9774d56d682e549c"))

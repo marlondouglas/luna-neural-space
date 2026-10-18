@@ -191,6 +191,7 @@ class LicencaActivity : AppCompatActivity() {
 
     private fun paywall(codigo: String, teste: LicencaLogica.Decisao.Teste?) {
         val c = limpar()
+        val checkout = Licenca.checkoutUrl(this)
         val largo = resources.configuration.screenWidthDp >= 720
         val col = ui.vbox()
         topo(col, fechar = assinar)
@@ -219,9 +220,17 @@ class LicencaActivity : AppCompatActivity() {
             plano.addView(l, ui.mp(ui.dp(10)))
         }
         esquerda.addView(plano, ui.mp(ui.dp(18)))
+        if (checkout.isNotEmpty()) {
+            esquerda.addView(ui.botao("Assinar R$ 7/mês", Ui.Estilo.CHEIO_ESMERALDA, alto = true) { abrirCheckout(checkout) }, ui.mp(ui.dp(16)))
+        }
         // Passos
         val passos = ui.vbox()
-        listOf("Pague R$ 7,00 no Pix (QR ou chave).", "Toque em \"Já paguei\".", "Liberamos sua conta assim que o Pix for confirmado.").forEachIndexed { i, s ->
+        val listaPassos = if (checkout.isNotEmpty()) listOf(
+            "Toque em \"Assinar R$ 7/mês\" e pague no link (ou no Pix abaixo).",
+            "Toque em \"Já paguei\" e mande o comprovante no WhatsApp com o seu código $codigo.",
+            "Liberamos sua conta assim que o pagamento for confirmado.",
+        ) else listOf("Pague R$ 7,00 no Pix (QR ou chave).", "Toque em \"Já paguei\" e mande o comprovante com o seu código $codigo.", "Liberamos sua conta assim que o Pix for confirmado.")
+        listaPassos.forEachIndexed { i, s ->
             val l = ui.hbox()
             l.addView(ui.text("${i + 1}", 13f, Cores.OBSIDIAN, bold = true).apply {
                 gravity = Gravity.CENTER; background = ui.fundo(Cores.VIOLETA, raio = 12f)
@@ -234,7 +243,7 @@ class LicencaActivity : AppCompatActivity() {
         // Pix
         val pix = ui.card(acento = Cores.CIANO)
         pix.gravity = Gravity.CENTER_HORIZONTAL
-        pix.addView(ui.tituloIcone(R.drawable.ic_wallet, "Pague com Pix", Cores.CIANO), ui.mp())
+        pix.addView(ui.tituloIcone(R.drawable.ic_wallet, if (checkout.isNotEmpty()) "Ou pague direto no Pix" else "Pague com Pix", Cores.CIANO), ui.mp())
         val payload = PixBrCode.payload(txid = PixBrCode.txid(codigo))
         qr(payload, ui.dp(if (largo) 220 else 200))?.let { bmp ->
             pix.addView(ImageView(this).apply {
@@ -255,7 +264,7 @@ class LicencaActivity : AppCompatActivity() {
         pix.addView(cod, ui.mp(ui.dp(12)))
 
         val acoes = ui.vbox()
-        acoes.addView(ui.botao("Já paguei", Ui.Estilo.CHEIO_ESMERALDA, alto = true) { jaPaguei() }, ui.mp())
+        acoes.addView(ui.botao("Já paguei", if (checkout.isNotEmpty()) Ui.Estilo.CONTORNO else Ui.Estilo.CHEIO_ESMERALDA, alto = true) { jaPaguei() }, ui.mp())
         acoes.addView(ui.botao("Verificar liberação", Ui.Estilo.CONTORNO) { verificar(false) }, ui.mp(ui.dp(10)))
 
         if (largo) {
@@ -297,10 +306,15 @@ class LicencaActivity : AppCompatActivity() {
             val codigo = Licenca.avisarPagamento(this@LicencaActivity) ?: Licenca.codigo(this@LicencaActivity)
             AlertDialog.Builder(this@LicencaActivity)
                 .setTitle("Recebemos seu aviso")
-                .setMessage("Seu código é $codigo. Assim que o Pix de R$ 7,00 for confirmado, sua conta é liberada e o app abre normalmente. Se quiser agilizar, mande o comprovante no WhatsApp.")
-                .setPositiveButton("Enviar comprovante") { _, _ -> Suporte.whatsapp(this@LicencaActivity, "Olá! Paguei a assinatura do Rota GV (R$ 7,00). Meu código: $codigo. Segue o comprovante.") }
+                .setMessage("Seu código é $codigo. Para liberarmos sua conta, mande o comprovante do pagamento de R$ 7,00 no WhatsApp junto com esse código. Assim que conferirmos, o app abre normalmente.")
+                .setPositiveButton("Enviar comprovante no WhatsApp") { _, _ -> Suporte.whatsapp(this@LicencaActivity, "Olá! Paguei a assinatura do Rota GV (R$ 7,00). Meu código: $codigo. Segue o comprovante.") }
                 .setNegativeButton("OK", null).show()
         }
+    }
+
+    private fun abrirCheckout(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(this, "Não foi possível abrir o link de pagamento.", Toast.LENGTH_LONG).show() }
     }
 
     private fun copiar(rotulo: String, texto: String, aviso: String) {

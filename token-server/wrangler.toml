@@ -29,15 +29,16 @@ MAX_DEVICES = "3"
 # Versões abaixo desta são bloqueadas ("Atualize o app"). 106 = v0.1.6 (primeira com a trava).
 MIN_VERSION_CODE = "106"
 DOWNLOAD_URL = "https://marlondouglas.github.io/luna-neural-space/download.html"
+# Link de pagamento (InfinitePay). Trocar sem deploy: tools/unlock.sh checkout <url>.
+CHECKOUT_URL = "https://checkout.infinitepay.io/mduseimports/nDdXiu2DrZ"
 # "1" = /chat, /tts e /receipt exigem conta com teste/assinatura em dia.
 LICENSE_ENFORCE = "1"
 
-# KV das licenças. NÃO criado ainda (produção). Para criar:
-#   npx wrangler kv namespace create LICENSES
-# e troque o id abaixo pelo que o comando mostrar.
+# KV das licenças (criado em 18/10/2026 com:
+#   npx wrangler kv namespace create LICENSES)
 [[kv_namespaces]]
 binding = "LICENSES"
-id = "COLOQUE_AQUI_O_ID_DO_KV_LICENSES"
+id = "cfaaffc8a4f0416d9a9b49389b86d35c"
 
 # Workers AI (plano gratuito), usado em POST /chat.
 [ai]
@@ -49,3 +50,4 @@ binding = "AI"
 #   npx wrangler secret put GEMINI_API_KEY   (chave do Gemini para /chat)
 #   npx wrangler secret put LICENSE_SIGNING_KEY  (JWK privada ECDSA P-256; arquivo fora do repo)
 #   npx wrangler secret put ADMIN_SECRET         (token do tools/unlock.sh; arquivo fora do repo)
+#   npx wrangler secret put INFINITEPAY_WEBHOOK_SECRET (segredo do webhook; arquivo fora do repo)

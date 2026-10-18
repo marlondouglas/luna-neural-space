@@ -164,3 +164,20 @@ test("ID token do Firebase: confere assinatura, aud, iss, validade", async () =>
   const forged = good.split(".").slice(0, 1).concat(b64u({ ...base, sub: "outro" }), good.split(".")[2]).join(".");
   await assert.rejects(L.verifyFirebaseIdToken(forged, "proj", now, fetcher), /assinatura/);
 });
+
+test("payloadShape guarda só forma + ids/status/valores (sem dados pessoais)", () => {
+  const sh = L.payloadShape({ order_nsu: "abc", transaction_nsu: "t1", amount: 700, customer: { name: "Fulano", email: "f@x.com", phone: "33999" }, items: [{ description: "Plano", price: 700 }], status: "paid" });
+  assert.deepEqual(sh.order_nsu, { type: "string", value: "abc" });
+  assert.deepEqual(sh.amount, { type: "number", value: "700" });
+  assert.deepEqual(sh.status, { type: "string", value: "paid" });
+  assert.deepEqual(sh.customer, { name: "string", email: "string", phone: "string" });
+  assert.deepEqual(sh.items, [{ description: "string", price: "number" }]);
+  assert.ok(!JSON.stringify(sh).includes("Fulano") && !JSON.stringify(sh).includes("f@x.com"));
+});
+
+test("checkoutUrl vai no payload assinado", async () => {
+  const s = memStore();
+  const r = await L.checkLicense(s, { uid: "u1", device: "d1", now: T0, nonce: "nonce12345" }, { ...cfg, checkoutUrl: "https://checkout.example/x" });
+  assert.equal(r.payload.checkoutUrl, "https://checkout.example/x");
+  assert.equal((await check(s, "u1", "d1", T0)).checkoutUrl, "");
+});

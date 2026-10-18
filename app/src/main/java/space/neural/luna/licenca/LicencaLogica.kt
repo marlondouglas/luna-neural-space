@@ -30,6 +30,8 @@ object LicencaLogica {
         val minVersionCode: Int,
         val downloadUrl: String,
         val nonce: String,
+        /** Link de pagamento definido no servidor ("" = só Pix). */
+        val checkoutUrl: String = "",
     ) {
         companion object {
             fun ler(json: String): Payload? = runCatching {
@@ -40,6 +42,7 @@ object LicencaLogica {
                     code = o.optString("code"), trialStart = o.getLong("trialStart"), trialEndsAt = o.getLong("trialEndsAt"),
                     paidUntil = o.getLong("paidUntil"), serverTime = o.getLong("serverTime"), graceMs = o.getLong("graceMs"),
                     minVersionCode = o.optInt("minVersionCode", 0), downloadUrl = o.optString("downloadUrl"), nonce = o.optString("nonce"),
+                    checkoutUrl = o.optString("checkoutUrl"),
                 )
             }.getOrNull()
         }
@@ -84,6 +87,16 @@ object LicencaLogica {
         val agora = candidatos.max()
         val alterado = r.parede < agora - TOLERANCIA_RELOGIO_MS
         return agora to alterado
+    }
+
+    /** Só aceita https (o payload é assinado, mas o padrão embutido também passa por aqui). */
+    fun linkPagamento(servidor: String?, padrao: String): String {
+        fun ok(u: String?) = u != null && Regex("^https://[^\\s\"<>]{4,300}$").matches(u.trim())
+        return when {
+            servidor != null && ok(servidor) -> servidor.trim()
+            ok(padrao) -> padrao.trim()
+            else -> ""
+        }
     }
 
     fun dias(ms: Long): Int = ceil(ms.coerceAtLeast(0) / DIA_MS.toDouble()).toInt()

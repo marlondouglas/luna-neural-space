@@ -8,6 +8,8 @@
 #   tools/unlock.sh until   <código|...> <AAAA-MM-DD> [ref]
 #   tools/unlock.sh revoke  <código|...>
 #   tools/unlock.sh reset-devices <código|...>  # troca de celular (limite de aparelhos)
+#   tools/unlock.sh checkout [url|off|padrao]   # mostra/troca o link de pagamento (sem nova versão do app)
+#   tools/unlock.sh webhooks                  # últimos webhooks da InfinitePay (só a forma do payload)
 #
 # O token de admin é lido de um ARQUIVO (nunca da linha de comando nem impresso):
 #   ADMIN_SECRET_FILE (padrão: /workspace/secrets/license_admin_secret)
@@ -38,5 +40,13 @@ case "$cmd" in
   until)  call POST /admin/grant "{\"q\":$(jstr "${1:?código}"),\"until\":$(jstr "${2:?AAAA-MM-DD}"),\"ref\":$(jstr "${3:-manual}")}" ;;
   revoke) call POST /admin/revoke "{\"q\":$(jstr "${1:?código}")}" ;;
   reset-devices) call POST /admin/reset-devices "{\"q\":$(jstr "${1:?código}")}" ;;
-  *) sed -n '2,13p' "$0"; exit 1 ;;
+  checkout)
+    case "${1:-}" in
+      "") call GET /admin/checkout ;;
+      off) call POST /admin/checkout '{"url":""}' ;;
+      padrao) call POST /admin/checkout '{"url":null}' ;;
+      *) call POST /admin/checkout "{\"url\":$(jstr "$1")}" ;;
+    esac ;;
+  webhooks) call GET /admin/webhooks ;;
+  *) sed -n '2,15p' "$0"; exit 1 ;;
 esac

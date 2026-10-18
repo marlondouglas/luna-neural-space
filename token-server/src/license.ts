@@ -50,6 +50,8 @@ export interface LicenseConfig {
   maxDevices: number;
   minVersionCode: number;
   downloadUrl: string;
+  /** Link de pagamento (checkout InfinitePay); "" = o app mostra só o Pix. */
+  checkoutUrl?: string;
 }
 
 export interface LicensePayload {
@@ -65,6 +67,7 @@ export interface LicensePayload {
   graceMs: number;
   minVersionCode: number;
   downloadUrl: string;
+  checkoutUrl: string;
   nonce: string;
 }
 
@@ -213,6 +216,7 @@ export async function checkLicense(store: Store, input: CheckInput, cfg: License
     graceMs: cfg.graceMs,
     minVersionCode: cfg.minVersionCode,
     downloadUrl: cfg.downloadUrl,
+    checkoutUrl: cfg.checkoutUrl ?? "",
     nonce: input.nonce.slice(0, 64),
   };
   return { payload, acct };
@@ -361,3 +365,20 @@ export async function verifyFirebaseIdToken(token: string, projectId: string, no
     exp: claims.exp,
   };
 }
+
+// ---------------- webhooks ----------------
+/** Descreve a forma do JSON (chaves e tipos), sem valores; só guarda valores de campos de id/status/valor. */
+export function payloadShape(v: unknown, depth = 0): unknown {
+  if (depth > 5) return "…";
+  if (Array.isArray(v)) return v.length ? [payloadShape(v[0], depth + 1)] : [];
+  if (v && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>).slice(0, 60)) {
+      const keep = /(^|_)(id|nsu|slug|status|amount|paid_amount|installments|capture_method|method)$/i.test(k) || /_id$|_nsu$/i.test(k);
+      o[k] = keep && (typeof x === "string" || typeof x === "number" || typeof x === "boolean") ? { type: typeof x, value: String(x).slice(0, 64) } : payloadShape(x, depth + 1);
+    }
+    return o;
+  }
+  return v === null ? "null" : typeof v;
+}
+

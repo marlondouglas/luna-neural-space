@@ -42,7 +42,7 @@ class LicencaPrintsTest {
         LicencaActivity.semRede = true
     }
 
-    @After fun depois() { Licenca.forcar = null; LicencaActivity.semRede = false }
+    @After fun depois() { Licenca.forcar = null; Licenca.checkoutForcado = null; LicencaActivity.semRede = false }
 
     private fun idle(n: Int = 10) = repeat(n) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
 
@@ -113,6 +113,15 @@ class LicencaPrintsTest {
         assertTrue(v.contains("Já paguei"))
         assertTrue(v.contains("K7M2QX"))
         assertNotNull(achar(raiz) { it is android.widget.ImageView && it.contentDescription == "QR Code Pix de R$ 7,00" })
+        // link de pagamento (padrão embutido = checkout da InfinitePay) abre no navegador
+        if (Licenca.checkoutForcado != "") {
+            assertTrue(v.contains("Assinar R$ 7/mês")); assertTrue(v.contains("OU PAGUE DIRETO NO PIX"))
+            (achar(raiz) { it is android.widget.Button && it.text == "Assinar R$ 7/mês" } as android.widget.Button).performClick()
+            val i = shadowOf(act).nextStartedActivity
+            assertEquals(space.neural.luna.BuildConfig.CHECKOUT_URL, i.dataString)
+        } else {
+            assertTrue(!v.contains("Assinar R$ 7/mês")); assertTrue(v.contains("PAGUE COM PIX"))
+        }
         // copiar chave
         (achar(raiz) { it is android.widget.Button && it.text == "Pix copia e cola" } as android.widget.Button).performClick()
         val clip = ctx.getSystemService(android.content.ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
@@ -132,6 +141,42 @@ class LicencaPrintsTest {
         val b = achar(raiz) { it is TextView && it.text.toString().startsWith("Teste grátis: faltam 5 dias") }
         assertNotNull("aviso do teste", b); assertEquals(View.VISIBLE, b!!.visibility)
         print(raiz, nome)
+    }
+
+    /** Janela "Seu teste grátis acaba amanhã" na tela inicial (uma vez por limiar). */
+    private fun janela(nome: String) {
+        val z = java.time.ZoneId.systemDefault()
+        val fim = java.time.ZonedDateTime.now(z).plusDays(1).withHour(14).withMinute(30).toInstant().toEpochMilli()
+        ctx.getSharedPreferences("avisos_teste", 0).edit().clear().putBoolean("perm_perguntada", true).commit()
+        Licenca.forcar = LicencaLogica.Decisao.Teste(2, fim, "K7M2QX")
+        val act = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        idle(10)
+        val d = org.robolectric.shadows.ShadowDialog.getLatestDialog()
+        assertNotNull("janela do aviso", d); assertTrue(d.isShowing)
+        val v = visiveis(d.window!!.decorView)
+        assertTrue(v.contains("Seu teste grátis acaba amanhã")); assertTrue(v.contains("Assinar R$ 7/mês")); assertTrue(v.contains("Depois"))
+        val b = achar(act.window.decorView) { it is TextView && it.text.toString().startsWith("Teste grátis acaba amanhã") }
+        assertNotNull("aviso verde com o texto do limiar", b)
+        // print: tela inicial escurecida + janela por cima
+        val dir = System.getProperty("luna.shots")
+        if (dir != null) {
+            val raiz = act.window.decorView
+            val bmp = Bitmap.createBitmap(raiz.width, raiz.height, Bitmap.Config.ARGB_8888)
+            val cv = Canvas(bmp)
+            FundoNeon().apply { setBounds(0, 0, raiz.width, raiz.height) }.draw(cv); raiz.draw(cv)
+            cv.drawColor(android.graphics.Color.argb(150, 0, 0, 0))
+            val dv = d.window!!.decorView
+            cv.save(); cv.translate((raiz.width - dv.width) / 2f, (raiz.height - dv.height) / 2f); dv.draw(cv); cv.restore()
+            File(dir).mkdirs(); File(dir, "$nome.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        // "Assinar" abre o link de pagamento
+        (achar(d.window!!.decorView) { it is android.widget.Button && it.text == "Assinar R$ 7/mês" } as android.widget.Button).performClick()
+        assertEquals(space.neural.luna.BuildConfig.CHECKOUT_URL, shadowOf(act).nextStartedActivity.dataString)
+        // não aparece de novo no mesmo limiar
+        d.dismiss()
+        val antes = org.robolectric.shadows.ShadowDialog.getShownDialogs().size
+        Robolectric.buildActivity(MainActivity::class.java).setup().get(); idle(5)
+        assertEquals(antes, org.robolectric.shadows.ShadowDialog.getShownDialogs().size)
     }
 
     private fun outras(nome: String) {
@@ -167,7 +212,11 @@ class LicencaPrintsTest {
         login("login-criar-telefone", entrar = false)
         login("login-entrar-telefone", entrar = true)
         banner("teste-aviso-telefone")
+        janela("teste-janela-amanha-telefone")
         expirado("teste-acabou-telefone")
+        Licenca.checkoutForcado = ""
+        expirado("teste-acabou-so-pix-telefone")
+        Licenca.checkoutForcado = null
         outras("telefone")
     }
 
@@ -175,6 +224,7 @@ class LicencaPrintsTest {
         login("login-criar-central", entrar = false)
         login("login-entrar-central", entrar = true)
         banner("teste-aviso-central")
+        janela("teste-janela-amanha-central")
         expirado("teste-acabou-central")
     }
 }

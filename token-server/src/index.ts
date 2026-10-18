@@ -1,5 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
-import { LicenseEnv, handleAdmin, handleCoraWebhook, handleLicenseCheck, handleLicenseClaim, requireLicense } from "./licenseRoutes";
+import { LicenseEnv, handleAdmin, handleCoraWebhook, handleInfinitePayWebhook, handleLicenseCheck, handleLicenseClaim, requireLicense } from "./licenseRoutes";
 
 /**
  * Servidor de tokens LiveKit do app Rota GV.
@@ -21,7 +21,8 @@ import { LicenseEnv, handleAdmin, handleCoraWebhook, handleLicenseCheck, handleL
  *   O tempo da boca (lip sync) é calculado no aparelho a partir do texto + áudio.
  *
  * Licença (teste grátis de 7 dias + assinatura), ver licenseRoutes.ts:
- *   POST /license/check, POST /license/claim, /admin/* (tools/unlock.sh), POST /webhook/cora (gancho).
+ *   POST /license/check, POST /license/claim, /admin/* (tools/unlock.sh), POST /webhook/cora (gancho),
+ *   POST /webhook/infinitepay (por enquanto só registra a forma do payload).
  *   Com LICENSE_ENFORCE="1", /chat, /tts e /receipt exigem conta com teste/assinatura em dia
  *   (headers Authorization: Bearer <ID token Firebase>, X-Device-Id, X-App-Version).
  */
@@ -441,6 +442,7 @@ export default {
     }
     if (url.pathname.startsWith("/admin/")) return handleAdmin(request, env, url.pathname);
     if (url.pathname === "/webhook/cora") return handleCoraWebhook(request, env);
+    if (url.pathname === "/webhook/infinitepay") return handleInfinitePayWebhook(request, env);
 
     if (url.pathname === "/tts") {
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);

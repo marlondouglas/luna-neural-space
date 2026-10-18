@@ -42,6 +42,8 @@ android {
         }
         buildConfigField("String", "LUNA_CHAT_ENDPOINT", "\"$chat\"")
         buildConfigField("boolean", "FIREBASE_CONFIGURED", hasGoogleServices.toString())
+        // Link de pagamento padrão (o Worker pode trocar pelo /license/check: campo checkoutUrl).
+        buildConfigField("String", "CHECKOUT_URL", "\"${cfg("CHECKOUT_URL").ifBlank { "https://checkout.infinitepay.io/mduseimports/nDdXiu2DrZ" }}\"")
         // WhatsApp do suporte (senha de conta por celular, comprovante do Pix, troca de aparelho).
         buildConfigField("String", "SUPPORT_WHATSAPP", "\"${cfg("SUPPORT_WHATSAPP").ifBlank { "5533987044866" }}\"")
     }

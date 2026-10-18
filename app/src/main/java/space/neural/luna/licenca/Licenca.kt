@@ -95,6 +95,28 @@ object Licenca {
         return d
     }
 
+    /** "Agora confiável" (horário do servidor + tempo desde a resposta); sem resposta, o relógio do aparelho. */
+    fun agora(ctx: Context): Long {
+        val c = cache(ctx) ?: return System.currentTimeMillis()
+        return LicencaLogica.agoraConfiavel(c, marca(ctx), relogio(ctx)).first
+    }
+
+    /** Para testes/prints: força o link de pagamento. */
+    @Volatile var checkoutForcado: String? = null
+
+    /**
+     * Link "Assinar R$ 7/mês": o do servidor (payload assinado, troca sem nova versão do app) ou o padrão
+     * embutido (BuildConfig.CHECKOUT_URL). Vazio = a tela mostra só o Pix.
+     */
+    fun checkoutUrl(ctx: Context): String {
+        checkoutForcado?.let { return it }
+        val raw = ctx.getSharedPreferences(PREFS, 0).getString("payload", null)
+        val p = cache(ctx)?.payload
+        // Resposta do servidor com o campo: ele decide ("" = só Pix). Sem resposta: padrão embutido.
+        if (p != null && raw?.contains("\"checkoutUrl\"") == true) return LicencaLogica.linkPagamento(p.checkoutUrl, "")
+        return LicencaLogica.linkPagamento(null, BuildConfig.CHECKOUT_URL)
+    }
+
     /** Código da conta (6 letras/números) para o Pix e o "Já paguei". */
     fun codigo(ctx: Context): String = cache(ctx)?.payload?.code?.takeIf { it.isNotBlank() } ?: codigoAparelho(ctx)
 
@@ -154,7 +176,10 @@ object Licenca {
                     .putLong("marca_t", pl.serverTime).putLong("marca_e", meio).putInt("marca_b", r.boot)
                     .putBoolean("revalidar", false)
                     .apply()
-                Resultado.Ok(decidir(ctx))
+                val d = decidir(ctx)
+                // notificações de fim do teste (2 dias, amanhã, hoje) a partir do horário do servidor
+                if (d is LicencaLogica.Decisao.Teste) AvisoTeste.agendar(ctx, agora(ctx), d.terminaEm) else AvisoTeste.cancelar(ctx)
+                Resultado.Ok(d)
             } finally { c.disconnect() }
         } catch (e: Exception) {
             Resultado.Erro("Sem internet para confirmar sua assinatura.")

@@ -169,11 +169,34 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         setOnClickListener { space.neural.luna.licenca.LicencaActivity.assinar(this@MainActivity) }
     }
 
+    private var janelaAviso: android.app.Dialog? = null
+    private val permNotif = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+
+    /** Últimos dias do teste: janela (uma vez por limiar) e, no Android 13+, pedido amigável de notificação. */
+    private fun avisosTeste(d: space.neural.luna.licenca.LicencaLogica.Decisao.Teste) {
+        val aviso = space.neural.luna.licenca.AvisoTeste
+        if (janelaAviso?.isShowing == true || isFinishing) return
+        val l = aviso.janelaPendente(this, space.neural.luna.licenca.Licenca.agora(this), d.terminaEm)
+        if (l != null) { janelaAviso = aviso.mostrarJanela(this, l, d.terminaEm); return }
+        if (aviso.deveExplicarPermissao(this)) {
+            AlertDialog.Builder(this).setTitle("Avisos do teste grátis")
+                .setMessage("Quer que o Rota GV te avise por notificação quando o teste grátis estiver acabando? Só nos últimos dias, sem propaganda.")
+                .setPositiveButton("Permitir") { _, _ -> runCatching { permNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS) } }
+                .setNegativeButton("Agora não", null).show()
+        }
+    }
+
     private fun atualizarLicenca(d: space.neural.luna.licenca.LicencaLogica.Decisao) {
         if (!d.liberado) { space.neural.luna.licenca.LicencaActivity.bloquear(this); finish(); return }
+        val zona = java.time.ZoneId.systemDefault()
         val (txt, cor) = when (d) {
-            is space.neural.luna.licenca.LicencaLogica.Decisao.Teste ->
-                "Teste grátis: ${if (d.diasRestantes == 1) "falta 1 dia" else "faltam ${d.diasRestantes} dias"}  ·  Assinar R$ 7/mês ›" to Cores.ESMERALDA
+            is space.neural.luna.licenca.LicencaLogica.Decisao.Teste -> {
+                avisosTeste(d)
+                val l = space.neural.luna.licenca.AvisoTeste.limiar(space.neural.luna.licenca.Licenca.agora(this), d.terminaEm, zona)
+                (if (l != null) space.neural.luna.licenca.AvisoTeste.textoBanner(l, d.terminaEm, zona)
+                else "Teste grátis: ${if (d.diasRestantes == 1) "falta 1 dia" else "faltam ${d.diasRestantes} dias"}  ·  Assinar R$ 7/mês ›") to
+                    (if (l == 0) Cores.LARANJA else Cores.ESMERALDA)
+            }
             is space.neural.luna.licenca.LicencaLogica.Decisao.Pago ->
                 if (d.diasRestantes <= 3) "Sua assinatura vence em ${d.diasRestantes} ${if (d.diasRestantes == 1) "dia" else "dias"}  ·  Renovar ›" to Cores.AMARELO else null to 0
             else -> null to 0
