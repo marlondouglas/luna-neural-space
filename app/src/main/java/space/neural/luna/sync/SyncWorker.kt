@@ -87,6 +87,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 db.metaDao()::upsert, FirestoreMappers::meta, FirestoreMappers::meta),
             SyncCollection("anotacoes", db.anotacaoDao()::dirty, db.anotacaoDao()::markClean, db.anotacaoDao()::byId,
                 db.anotacaoDao()::upsert, FirestoreMappers::anotacao, FirestoreMappers::anotacao),
+            SyncCollection("planejamento", db.planejamentoDao()::dirty, db.planejamentoDao()::markClean, db.planejamentoDao()::byId,
+                db.planejamentoDao()::upsert, FirestoreMappers::planejamento, FirestoreMappers::planejamento),
+            SyncCollection("contas_fixas", db.contaFixaDao()::dirty, db.contaFixaDao()::markClean, db.contaFixaDao()::byId,
+                db.contaFixaDao()::upsert, FirestoreMappers::contaFixa, FirestoreMappers::contaFixa),
+            SyncCollection("limites", db.limiteDao()::dirty, db.limiteDao()::markClean, db.limiteDao()::byId,
+                db.limiteDao()::upsert, FirestoreMappers::limite, FirestoreMappers::limite),
         )
     }
 

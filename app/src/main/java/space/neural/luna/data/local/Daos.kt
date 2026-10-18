@@ -106,6 +106,60 @@ interface AnotacaoDao {
     suspend fun markClean(id: String, updatedAt: Long)
 }
 
+@Dao
+interface PlanejamentoDao {
+    @Upsert
+    suspend fun upsert(item: Planejamento)
+
+    @Query("SELECT * FROM planejamento WHERE id = :id")
+    suspend fun byId(id: String): Planejamento?
+
+    @Query("SELECT * FROM planejamento WHERE deleted = 0 ORDER BY id")
+    fun observeAll(): Flow<List<Planejamento>>
+
+    @Query("SELECT * FROM planejamento WHERE dirty = 1")
+    suspend fun dirty(): List<Planejamento>
+
+    @Query("UPDATE planejamento SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
+    suspend fun markClean(id: String, updatedAt: Long)
+}
+
+@Dao
+interface ContaFixaDao {
+    @Upsert
+    suspend fun upsert(item: ContaFixa)
+
+    @Query("SELECT * FROM contas_fixas WHERE id = :id")
+    suspend fun byId(id: String): ContaFixa?
+
+    @Query("SELECT * FROM contas_fixas WHERE deleted = 0 ORDER BY diaVencimento")
+    fun observeAll(): Flow<List<ContaFixa>>
+
+    @Query("SELECT * FROM contas_fixas WHERE dirty = 1")
+    suspend fun dirty(): List<ContaFixa>
+
+    @Query("UPDATE contas_fixas SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
+    suspend fun markClean(id: String, updatedAt: Long)
+}
+
+@Dao
+interface LimiteDao {
+    @Upsert
+    suspend fun upsert(item: Limite)
+
+    @Query("SELECT * FROM limites WHERE id = :id")
+    suspend fun byId(id: String): Limite?
+
+    @Query("SELECT * FROM limites WHERE deleted = 0 ORDER BY nome")
+    fun observeAll(): Flow<List<Limite>>
+
+    @Query("SELECT * FROM limites WHERE dirty = 1")
+    suspend fun dirty(): List<Limite>
+
+    @Query("UPDATE limites SET dirty = 0 WHERE id = :id AND updatedAt = :updatedAt")
+    suspend fun markClean(id: String, updatedAt: Long)
+}
+
 /** Consultas extras de turno. */
 @Dao
 interface TurnoQueries {
@@ -113,7 +167,7 @@ interface TurnoQueries {
     fun observeAtual(): Flow<Turno?>
 
     /** Turno em andamento ou fechado aguardando "Concluir" (o que o dashboard mostra). */
-    @Query("SELECT * FROM turnos WHERE deleted = 0 AND estado IN ('ATIVO','PAUSADO','CAFE','FECHADO') ORDER BY inicio DESC LIMIT 1")
+    @Query("SELECT * FROM turnos WHERE deleted = 0 AND estado IN ('PRONTO','ATIVO','PAUSADO','CAFE','FECHADO') ORDER BY data DESC, numero DESC, inicio DESC LIMIT 1")
     fun observeCorrente(): Flow<Turno?>
 }
 
@@ -123,7 +177,24 @@ interface SyncQueries {
     @Query(
         "SELECT (SELECT COUNT(*) FROM turnos WHERE dirty = 1) + (SELECT COUNT(*) FROM ganhos WHERE dirty = 1) + " +
             "(SELECT COUNT(*) FROM gastos WHERE dirty = 1) + (SELECT COUNT(*) FROM metas WHERE dirty = 1) + " +
-            "(SELECT COUNT(*) FROM anotacoes WHERE dirty = 1)"
+            "(SELECT COUNT(*) FROM anotacoes WHERE dirty = 1) + (SELECT COUNT(*) FROM planejamento WHERE dirty = 1) + " +
+            "(SELECT COUNT(*) FROM contas_fixas WHERE dirty = 1) + (SELECT COUNT(*) FROM limites WHERE dirty = 1)"
     )
     fun observePendentes(): Flow<Int>
+}
+
+/** Histórico da conversa com a Luna. */
+@Dao
+interface ChatDao {
+    @androidx.room.Insert
+    suspend fun inserir(m: MensagemChat): Long
+
+    @Query("SELECT * FROM (SELECT * FROM mensagens_chat ORDER BY criadaEm DESC, id DESC LIMIT :limite) ORDER BY criadaEm, id")
+    suspend fun ultimas(limite: Int): List<MensagemChat>
+
+    @Query("SELECT * FROM (SELECT * FROM mensagens_chat ORDER BY criadaEm DESC, id DESC LIMIT :limite) ORDER BY criadaEm, id")
+    fun observarUltimas(limite: Int): Flow<List<MensagemChat>>
+
+    @Query("DELETE FROM mensagens_chat")
+    suspend fun apagarTudo()
 }

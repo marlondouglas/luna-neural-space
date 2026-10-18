@@ -24,6 +24,8 @@ fun newId(): String = UUID.randomUUID().toString()
 
 /** Estados possíveis de um turno. */
 object EstadoTurno {
+    /** Turno criado (ou zerado) e ainda não iniciado: "pronto para iniciar". */
+    const val PRONTO = "PRONTO"
     const val ATIVO = "ATIVO"
     const val PAUSADO = "PAUSADO"
     const val CAFE = "CAFE"
@@ -51,6 +53,9 @@ object AppCorrida {
     const val NOVENTA_E_NOVE = "99"
     const val UBER = "UBER"
     const val INDRIVE = "INDRIVE"
+    const val GOGETA = "GOGETA"
+    /** Corrida particular (fora dos apps). */
+    const val PARTICULAR = "PARTICULAR"
     const val OUTRO = "OUTRO"
 }
 
@@ -66,8 +71,15 @@ data class Turno(
     val trabalhoMs: Long = 0,
     /** Minutos parado acumulados (pausa + café). */
     val paradoMs: Long = 0,
-    /** Momento da última mudança de estado, para somar o tempo corrente. */
+    /**
+     * Momento (relógio de parede, ms) da última mudança de estado. O tempo corrente é
+     * sempre recalculado como agora − ultimoEvento, então o contador fica certo mesmo
+     * com o app fechado ou o aparelho reiniciado.
+     */
     val ultimoEvento: Long = inicio,
+    /** Número do turno no dia: 1 a 4. */
+    @ColumnInfo(defaultValue = "1")
+    val numero: Int = 1,
     override val updatedAt: Long = System.currentTimeMillis(),
     override val dirty: Boolean = true,
     override val deleted: Boolean = false,
@@ -99,6 +111,8 @@ data class Gasto(
     /** kWh da recarga, quando a categoria for energia. */
     val kwh: Double? = null,
     val descricao: String? = null,
+    /** Envelope (conta com limite) do gasto, ex.: Supermercado. Null = gasto do trabalho. */
+    val limiteId: String? = null,
     override val updatedAt: Long = System.currentTimeMillis(),
     override val dirty: Boolean = true,
     override val deleted: Boolean = false,
@@ -130,3 +144,64 @@ data class Anotacao(
     override val dirty: Boolean = true,
     override val deleted: Boolean = false,
 ) : Syncable
+
+/**
+ * Planejamento do mês (Configurações > Planejamento). Registro único, id [ID].
+ * [diasTrabalho]: 4 semanas separadas por vírgula, cada uma com 7 dígitos seg..dom
+ * (1 = trabalha), ex.: "1111110,1111110,1111110,1111100".
+ */
+@Entity(tableName = "planejamento")
+data class Planejamento(
+    @PrimaryKey override val id: String = ID,
+    val diasTrabalho: String = PADRAO_DIAS,
+    /** Ganho líquido típico por hora, em centavos. */
+    val ganhoHoraCentavos: Long = 3000,
+    /** Renda desejada no mês além das contas (opcional), em centavos. */
+    val rendaDesejadaCentavos: Long? = null,
+    override val updatedAt: Long = System.currentTimeMillis(),
+    override val dirty: Boolean = true,
+    override val deleted: Boolean = false,
+) : Syncable {
+    companion object {
+        const val ID = "plano"
+        const val PADRAO_DIAS = "1111110,1111110,1111110,1111110"
+    }
+}
+
+/** Conta fixa do mês (aluguel, internet...). */
+@Entity(tableName = "contas_fixas")
+data class ContaFixa(
+    @PrimaryKey override val id: String = newId(),
+    val nome: String,
+    val valorCentavos: Long,
+    /** Dia do vencimento (1–31). */
+    val diaVencimento: Int,
+    override val updatedAt: Long = System.currentTimeMillis(),
+    override val dirty: Boolean = true,
+    override val deleted: Boolean = false,
+) : Syncable
+
+/** Conta com limite / envelope mensal (Supermercado R$ 1.000, Lanche R$ 200...). */
+@Entity(tableName = "limites")
+data class Limite(
+    @PrimaryKey override val id: String = newId(),
+    val nome: String,
+    val limiteCentavos: Long,
+    override val updatedAt: Long = System.currentTimeMillis(),
+    override val dirty: Boolean = true,
+    override val deleted: Boolean = false,
+) : Syncable
+
+/**
+ * Mensagem da conversa com a Luna (fica só no aparelho, sobrevive a reinícios).
+ * [voz] = ele falou (texto transcrito).
+ */
+@Entity(tableName = "mensagens_chat", indices = [Index("criadaEm")])
+data class MensagemChat(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** "user" ou "assistant". */
+    val role: String,
+    val texto: String,
+    val voz: Boolean = false,
+    val criadaEm: Long = System.currentTimeMillis(),
+)

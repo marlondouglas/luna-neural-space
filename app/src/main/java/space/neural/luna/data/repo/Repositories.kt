@@ -3,6 +3,10 @@ package space.neural.luna.data.repo
 import android.content.Context
 import kotlinx.coroutines.flow.Flow
 import space.neural.luna.data.local.Anotacao
+import space.neural.luna.data.local.ContaFixa
+import space.neural.luna.data.local.Limite
+import space.neural.luna.data.local.Planejamento
+import kotlinx.coroutines.flow.map
 import space.neural.luna.data.local.EstadoTurno
 import space.neural.luna.data.local.Ganho
 import space.neural.luna.data.local.Gasto
@@ -48,18 +52,7 @@ class LunaRepositories(context: Context) {
      * tempo em ATIVO vai para trabalho; tempo em PAUSADO ou CAFE vai para parado.
      */
     suspend fun mudarEstado(turno: Turno, novoEstado: String, agora: Long = now()) {
-        val corrido = (agora - turno.ultimoEvento).coerceAtLeast(0)
-        val atualizado = when (turno.estado) {
-            EstadoTurno.ATIVO -> turno.copy(trabalhoMs = turno.trabalhoMs + corrido)
-            EstadoTurno.PAUSADO, EstadoTurno.CAFE -> turno.copy(paradoMs = turno.paradoMs + corrido)
-            else -> turno
-        }
-        val fim = if (novoEstado == EstadoTurno.FECHADO || novoEstado == EstadoTurno.CONCLUIDO) {
-            atualizado.fim ?: agora
-        } else {
-            atualizado.fim
-        }
-        salvarTurno(atualizado.copy(estado = novoEstado, ultimoEvento = agora, fim = fim))
+        salvarTurno(space.neural.luna.data.local.MaquinaTurno.mudar(turno, novoEstado, agora))
     }
 
     suspend fun excluirTurno(id: String) {
@@ -101,4 +94,30 @@ class LunaRepositories(context: Context) {
     suspend fun excluirAnotacao(id: String) {
         db.anotacaoDao().byId(id)?.let { salvarAnotacao(it.copy(deleted = true)) }
     }
+
+    // ---- Planejamento ----
+    fun observePlanejamento(): Flow<Planejamento?> = db.planejamentoDao().observeAll().map { it.firstOrNull() }
+    suspend fun salvarPlanejamento(item: Planejamento) {
+        db.planejamentoDao().upsert(item.copy(id = Planejamento.ID, updatedAt = now(), dirty = true)); sync()
+    }
+    fun observeContasFixas(): Flow<List<ContaFixa>> = db.contaFixaDao().observeAll()
+    suspend fun salvarContaFixa(item: ContaFixa) {
+        db.contaFixaDao().upsert(item.copy(updatedAt = now(), dirty = true)); sync()
+    }
+    suspend fun excluirContaFixa(id: String) {
+        db.contaFixaDao().byId(id)?.let { salvarContaFixa(it.copy(deleted = true)) }
+    }
+    fun observeLimites(): Flow<List<Limite>> = db.limiteDao().observeAll()
+    suspend fun salvarLimite(item: Limite) {
+        db.limiteDao().upsert(item.copy(updatedAt = now(), dirty = true)); sync()
+    }
+    suspend fun excluirLimite(id: String) {
+        db.limiteDao().byId(id)?.let { salvarLimite(it.copy(deleted = true)) }
+    }
+
+    // ---- Conversa com a Luna (só local) ----
+    suspend fun salvarMensagem(m: space.neural.luna.data.local.MensagemChat) = db.chatDao().inserir(m)
+    suspend fun ultimasMensagens(limite: Int = 200) = db.chatDao().ultimas(limite)
+    fun observarMensagens(limite: Int = 200) = db.chatDao().observarUltimas(limite)
+    suspend fun apagarConversa() = db.chatDao().apagarTudo()
 }
