@@ -51,33 +51,33 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var orb: LunaOrbView
     private lateinit var status: TextView
     private var digitando: View? = null
-    private var painel: Painel? = null
-    private val historico = mutableListOf<Msg>()
-    private var pendente: Comandos.Comando.Ganho? = null
+    private lateinit var conversa: LunaConversa
+    private var botoes: View? = null
     private var tts: TextToSpeech? = null
     private var falar = false
     private var job: Job? = null
-    private val remoto = RemotoCerebro()
-    private val local = LocalCerebro()
+    private var fotoUri: android.net.Uri? = null
 
     private val ditado = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (!t.isNullOrBlank()) enviar(t)
+        if (!t.isNullOrBlank()) enviar(t, voz = true)
     }
+    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) fotoUri?.let { lerNota(it) } }
+    private val galeria = registerForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { lerNota(it) } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ui = Ui(this); repo = LunaRepositories(this)
+        ui = Ui(this); repo = LunaRepositories(this); conversa = LunaConversa.get(this)
         falar = getSharedPreferences("dashboard", 0).getBoolean("chat_falar", false)
-        val raiz = ui.vbox().apply { setBackgroundColor(Cores.OBSIDIAN) }
+        val raiz = ui.vbox()
 
         // Cabeçalho
         val cab = ui.hbox().apply { setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(8)) }
         cab.addView(ui.botaoIcone(R.drawable.ic_close, "Voltar ao painel") { finish() })
         orb = LunaOrbView(this)
-        cab.addView(orb, LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)).apply { leftMargin = ui.dp(4) })
+        cab.addView(orb, LinearLayout.LayoutParams(ui.dp(84), ui.dp(84)).apply { leftMargin = ui.dp(4) })
         val tit = ui.vbox()
-        tit.addView(ui.text("Luna", 20f, Cores.BRANCO, bold = true))
+        tit.addView(ui.text("Luna", 22f, Cores.BRANCO, bold = true).apply { setShadowLayer(16f, 0f, 0f, Cores.alpha(Cores.VIOLETA, 0.8f)) })
         status = ui.text("", 13f, Cores.CIANO)
         tit.addView(status)
         cab.addView(tit, ui.peso(1f, ui.dp(10)))
@@ -110,6 +110,7 @@ class ChatActivity : AppCompatActivity() {
 
         // Entrada
         val barra = ui.hbox().apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(12)) }
+        barra.addView(ui.botaoIcone(R.drawable.ic_camera, "Foto de nota fiscal: câmera ou galeria", Cores.MAGENTA) { escolherFoto(it) })
         barra.addView(ui.botaoIcone(R.drawable.ic_mic, "Falar com a Luna", Cores.CIANO) { ditar() })
         entrada = EditText(this).apply {
             hint = "Fale com a Luna…"; setTextColor(Cores.BRANCO); setHintTextColor(Cores.BRANCO_70)
@@ -123,37 +124,30 @@ class ChatActivity : AppCompatActivity() {
         barra.addView(entrada, ui.peso(1f, ui.dp(4)))
         barra.addView(ui.botaoIcone(R.drawable.ic_send, "Enviar", Cores.VIOLETA) { enviarCampo() }, ui.wc(ui.dp(4)))
         raiz.addView(barra, ui.mp())
-        setContentView(raiz)
+        val tela = FrameLayout(this)
+        tela.addView(space.neural.luna.dashboard.GalaxiaView(this), FrameLayout.LayoutParams(-1, -1))
+        tela.addView(raiz, FrameLayout.LayoutParams(-1, -1))
+        setContentView(tela)
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(raiz) { v, ins ->
             val b = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom); ins
         }
 
-        lifecycleScope.launch { Painel.observar(repo).collect { painel = it } }
-
-        // Restaura a conversa ao girar a tela.
-        val roles = savedInstanceState?.getStringArrayList("roles")
-        val textos = savedInstanceState?.getStringArrayList("textos")
-        if (roles != null && textos != null && roles.size == textos.size) {
-            roles.indices.forEach { i -> historico += Msg(roles[i], textos[i]); bolha(textos[i], roles[i] == "user", animar = false) }
-        } else {
-            val boasVindas = "Oi, Marlon! Sou a Luna. Posso te contar como está o dia, quanto falta para a meta, dar uma dica ou lançar uma corrida — é só dizer, por exemplo, \"30 na Uber\"."
-            historico += Msg("assistant", boasVindas); bolha(boasVindas, false)
+        // Histórico salvo no Room: a conversa continua depois de fechar o app.
+        lifecycleScope.launch {
+            val h = conversa.historico()
+            if (h.isEmpty()) {
+                bolha("Oi, Marlon! Sou a Luna. Posso te contar como está o dia, quanto falta para a meta, ler a foto de uma nota fiscal ou lançar uma corrida — é só dizer, por exemplo, \"30 na Uber\".", false)
+            } else h.forEach { bolha(it.content, it.role == "user", animar = false) }
+            intent.getStringExtra(EXTRA_PERGUNTA)?.takeIf { savedInstanceState == null }?.let { enviar(it) }
         }
-        intent.getStringExtra(EXTRA_PERGUNTA)?.takeIf { savedInstanceState == null }?.let { enviar(it) }
-    }
-
-    override fun onSaveInstanceState(out: Bundle) {
-        super.onSaveInstanceState(out)
-        out.putStringArrayList("roles", ArrayList(historico.map { it.role }))
-        out.putStringArrayList("textos", ArrayList(historico.map { it.content }))
     }
 
     override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
 
     private fun atualizarStatus(usouIa: Boolean?) {
         status.text = when {
-            !remoto.disponivel -> "ⓘ Respostas locais (servidor não configurado)"
+            !conversa.remotoDisponivel -> "ⓘ Respostas locais (servidor não configurado)"
             usouIa == false -> "ⓘ Sem internet — respostas locais"
             else -> "● Online"
         }
@@ -175,74 +169,63 @@ class ChatActivity : AppCompatActivity() {
         entrada.setText(""); enviar(t)
     }
 
-    private fun enviar(texto: String) {
+    private fun enviar(texto: String, voz: Boolean = false, rotulo: String? = null) {
         if (job?.isActive == true) return
-        historico += Msg("user", texto); bolha(texto, true)
+        botoes?.let { lista.removeView(it) }; botoes = null
+        bolha(rotulo ?: texto, true)
         job = lifecycleScope.launch {
-            val p = painel ?: Painel.observar(repo).first()
-            val resposta = tratarLocal(texto, p) ?: run {
-                mostrarDigitando(true)
-                val r = try {
-                    if (!remoto.disponivel) error("sem servidor")
-                    remoto.responder(historico, p).also { atualizarStatus(true) }
-                } catch (e: Exception) {
-                    atualizarStatus(false)
-                    local.responder(historico, p)
-                }
-                mostrarDigitando(false); r
-            }
-            historico += Msg("assistant", resposta); bolha(resposta, false)
-            if (falar) ler(resposta)
+            mostrarDigitando(true)
+            val r = conversa.enviar(texto, voz, rotulo)
+            mostrarDigitando(false)
+            if (r.usouIa != null) atualizarStatus(r.usouIa)
+            responder(r)
         }
     }
 
-    /** Comandos que rodam no aparelho. Retorna a resposta ou null para conversar normalmente. */
-    private suspend fun tratarLocal(texto: String, p: Painel?): String? {
-        if (p == null) return null
-        pendente?.let { pend ->
-            when (Comandos.totalOuMais(texto)) {
-                "TOTAL" -> {
-                    pendente = null
-                    val atual = p.porApp.first { it.app == pend.app }.centavos
-                    val dif = pend.centavos - atual
-                    if (dif <= 0) return "O ${Fmt.nomeApp(pend.app)} já está com ${Fmt.reais(atual)} hoje, então não lancei nada."
-                    repo.salvarGanho(Ganho(turnoId = p.turno?.id, data = p.hoje.toString(), app = pend.app, valorCentavos = dif, descricao = "Ajuste para o total do dia"))
-                    return "Pronto! Lancei ${Fmt.reais(dif)} no ${Fmt.nomeApp(pend.app)}, e o total do dia ficou ${Fmt.reais(pend.centavos)}."
-                }
-                "MAIS" -> {
-                    pendente = null
-                    repo.salvarGanho(Ganho(turnoId = p.turno?.id, data = p.hoje.toString(), app = pend.app, valorCentavos = pend.centavos))
-                    return "Lancei mais ${Fmt.reais(pend.centavos)} no ${Fmt.nomeApp(pend.app)}. 💜"
-                }
-                else -> pendente = null
+    private fun responder(r: LunaConversa.Resposta) {
+        bolha(r.texto, false)
+        if (falar) ler(r.texto)
+        if (r.botoes.isEmpty()) return
+        val grade = ui.vbox()
+        r.botoes.chunked(2).forEach { par ->
+            val l = ui.hbox()
+            par.forEachIndexed { i, b ->
+                l.addView(ui.botao(b.rotulo, if (b.principal) Ui.Estilo.CHEIO_VIOLETA else Ui.Estilo.CONTORNO) { enviar(b.comando, rotulo = b.rotulo) }, ui.peso(1f, if (i == 0) 0 else ui.dp(8)))
             }
+            grade.addView(l, ui.mp(ui.dp(6)))
         }
-        val acoes = TurnoAcoes(repo)
-        return when (val c = Comandos.interpretar(texto)) {
-            is Comandos.Comando.Ganho -> {
-                pendente = c
-                perguntaTotalOuMais()
-                "${Fmt.reais(c.centavos)} no ${Fmt.nomeApp(c.app)}: é o total do dia ou um valor a mais?"
-            }
-            is Comandos.Comando.Turno -> {
-                val t = p.turno
-                when (c.acao) {
-                    "INICIAR" -> if (t != null && t.estado != EstadoTurno.FECHADO) "Já tem um turno aberto." else { acoes.iniciar(); "Turno iniciado! Boa rota. ▶" }
-                    "PAUSAR" -> if (t?.estado == EstadoTurno.ATIVO) { acoes.pausar(t); "Turno pausado. ⏸" } else "Não há turno trabalhando para pausar."
-                    "CAFE" -> if (t?.estado == EstadoTurno.ATIVO || t?.estado == EstadoTurno.PAUSADO) { acoes.cafe(t); "Bom café! ☕ O tempo conta como parado." } else "Não há turno aberto."
-                    "RETOMAR" -> if (t?.estado == EstadoTurno.PAUSADO || t?.estado == EstadoTurno.CAFE) { acoes.retomar(t); "De volta ao trabalho! ▶" } else "O turno não está pausado."
-                    else -> null
-                }
-            }
-            null -> null
-        }
+        botoes = grade
+        lista.addView(grade, ui.mp(ui.dp(4))); rolar()
     }
 
-    private fun perguntaTotalOuMais() {
-        val linha = ui.hbox().apply { gravity = Gravity.START }
-        linha.addView(ui.botao("É o total", Ui.Estilo.CONTORNO) { v -> (v.parent as? ViewGroup)?.let { lista.removeView(it) }; enviar("total") })
-        linha.addView(ui.botao("É a mais", Ui.Estilo.CHEIO_VIOLETA) { v -> (v.parent as? ViewGroup)?.let { lista.removeView(it) }; enviar("a mais") }, ui.wc(ui.dp(8)))
-        lista.postDelayed({ lista.addView(linha, ui.mp(ui.dp(4))); rolar() }, 50)
+    private fun escolherFoto(ancora: View) {
+        val m = android.widget.PopupMenu(this, ancora)
+        m.menu.add(0, 1, 0, "Tirar foto da nota")
+        m.menu.add(0, 2, 1, "Escolher da galeria")
+        m.setOnMenuItemClickListener {
+            if (it.itemId == 1) {
+                val dir = java.io.File(cacheDir, "fotos").apply { mkdirs() }
+                val f = java.io.File(dir, "nota.jpg")
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+                fotoUri = uri
+                runCatching { camera.launch(uri) }.onFailure { Toast.makeText(this, "Câmera indisponível. Use a galeria.", Toast.LENGTH_SHORT).show() }
+            } else runCatching { galeria.launch("image/*") }
+            true
+        }
+        m.show()
+    }
+
+    private fun lerNota(uri: android.net.Uri) {
+        if (job?.isActive == true) return
+        botoes?.let { lista.removeView(it) }; botoes = null
+        bolha("📷 Foto de nota fiscal", true)
+        job = lifecycleScope.launch {
+            mostrarDigitando(true)
+            val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { Foto.reduzir(this@ChatActivity, uri) }.getOrNull() }
+            val r = if (jpeg == null) LunaConversa.Resposta("Não consegui abrir essa foto.") else conversa.lerNota(jpeg)
+            mostrarDigitando(false)
+            responder(r)
+        }
     }
 
     private fun bolha(texto: String, minha: Boolean, animar: Boolean = true) {
@@ -250,12 +233,16 @@ class ChatActivity : AppCompatActivity() {
             setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10))
             setTextIsSelectable(true)
             background = if (minha) android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TL_BR, intArrayOf(Cores.VIOLETA, Cores.mix(Cores.VIOLETA, Cores.CIANO, 0.35f)),
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR, intArrayOf(Cores.VIOLETA, Cores.mix(Cores.VIOLETA, Cores.MAGENTA, 0.45f)),
             ).apply { cornerRadii = raios(true) }
             else android.graphics.drawable.GradientDrawable().apply {
-                setColor(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.16f)); setStroke(ui.dp(1), Cores.alpha(Cores.VIOLETA, 0.35f)); cornerRadii = raios(false)
+                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
+                colors = intArrayOf(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.22f), Cores.mix(Cores.OBSIDIAN, Cores.CIANO, 0.08f))
+                setStroke(ui.dp(1), Cores.alpha(Cores.CIANO, 0.35f)); cornerRadii = raios(false)
             }
             contentDescription = (if (minha) "Você: " else "Luna: ") + texto
+            elevation = ui.dpf(6f)
+            if (android.os.Build.VERSION.SDK_INT >= 28) outlineSpotShadowColor = if (minha) Cores.MAGENTA else Cores.CIANO
         }
         val wrap = FrameLayout(this)
         wrap.addView(tv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,

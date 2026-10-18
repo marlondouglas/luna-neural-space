@@ -60,6 +60,17 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".dashboard.RelatorioActivity"
+            android:exported="false"
+            android:label="Relatórios" />
+
+        <activity
+            android:name=".config.PlanejamentoActivity"
+            android:exported="false"
+            android:label="Planejamento"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".teste.TesteFirebaseActivity"
             android:exported="false"
             android:label="@string/teste_firebase" />

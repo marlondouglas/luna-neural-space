@@ -2,4 +2,6 @@
 <paths>
     <external-files-path name="updates_ext" path="updates/" />
     <cache-path name="updates_cache" path="updates/" />
+    <!-- Fotos de nota fiscal tiradas no chat (reduzidas e enviadas à Luna). -->
+    <cache-path name="fotos" path="fotos/" />
 </paths>

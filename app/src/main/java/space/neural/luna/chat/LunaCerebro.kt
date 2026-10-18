@@ -72,7 +72,7 @@ class LocalCerebro : LunaCerebro {
             tem(q, "semana") && tem(q, "meta") -> meta(painel.metas.first { it.tipo == TipoMeta.SEMANA }, "da semana")
             tem(q, "mes") && tem(q, "meta") -> meta(painel.metas.first { it.tipo == TipoMeta.MES }, "do mês")
             tem(q, "meta", "falta") -> meta(dia, "do dia")
-            tem(q, "uber", "99", "indrive", "app") -> {
+            tem(q, "uber", "99", "indrive", "gogeta", "particular", "app") -> {
                 val melhor = painel.porApp.maxByOrNull { it.centavos }
                 painel.porApp.joinToString(" · ") { "${Fmt.nomeApp(it.app)}: ${Fmt.reais(it.centavos)} (${it.corridas})" } +
                     if (melhor != null && melhor.centavos > 0) ". O que mais rendeu hoje foi o ${Fmt.nomeApp(melhor.app)}." else "."
@@ -86,8 +86,8 @@ class LocalCerebro : LunaCerebro {
                 val t = painel.turno
                 if (t == null) "Você está sem turno. Diga \"iniciar turno\" ou toque em Iniciar no painel."
                 else {
-                    val ph = Calculos.porHoraCentavos(r.liquidoCentavos, Calculos.trabalhoMs(t, agora))
-                    "Turno ${estado(t.estado)}: ${Fmt.hms(Calculos.trabalhoMs(t, agora))} de trabalho e ${Fmt.minutos(Calculos.paradoMs(t, agora))} min parado." +
+                    val ph = Calculos.porHoraCentavos(r.liquidoCentavos, painel.trabalhoDia(agora))
+                    "Turno ${painel.situacao.numero}/4 ${estado(t.estado)}: ${Fmt.hms(Calculos.trabalhoMs(t, agora))} de trabalho e ${Fmt.minutos(Calculos.paradoMs(t, agora))} min parado." +
                         (ph?.let { " Ganho por hora: ${Fmt.reais(it)}/h." } ?: "")
                 }
             }
@@ -117,7 +117,7 @@ class LocalCerebro : LunaCerebro {
 
 /**
  * Comandos que a Luna executa no aparelho (sem IA), antes de conversar:
- * - lançar ganho: "30 na Uber", "lança 45,50 no 99" — pergunta "é o total ou a mais?" (spec 2.2);
+ * - lançar ganho: "30 na Uber", "lança 45,50 no 99", "30 na Gogeta", "50 particular", "corrida particular de 40" — pergunta "é o total ou a mais?" (spec 2.2);
  * - turno: "iniciar turno", "pausar", "café", "retomar".
  */
 object Comandos {
@@ -132,6 +132,8 @@ object Comandos {
         val q = LocalCerebro.normalizar(texto).trim()
         val app = when {
             Regex("\\b(indrive|in drive)\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.INDRIVE
+            Regex("\\b(gogeta|go geta|gogueta)\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.GOGETA
+            Regex("\\bparticular(es)?\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.PARTICULAR
             Regex("\\buber\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.UBER
             Regex("\\b(99|noventa e nove)\\b").containsMatchIn(q) && valorRe.findAll(q).count() >= 2 -> space.neural.luna.data.local.AppCorrida.NOVENTA_E_NOVE
             Regex("\\bno 99\\b|\\bna 99\\b|\\bdo 99\\b|\\bda 99\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.NOVENTA_E_NOVE
