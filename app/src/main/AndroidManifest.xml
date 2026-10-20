@@ -92,7 +92,12 @@
             android:exported="false"
             android:label="@string/atualizacao" />
 
-        <!-- v0.1.8: telas novas do PDF -->
+        <!-- v0.1.8: onboarding, ofertas, rádio e SOS -->
+        <activity
+            android:name=".onboarding.OnboardingActivity"
+            android:exported="false"
+            android:label="Configuração inicial" />
+
         <activity
             android:name=".ofertas.OfertasActivity"
             android:exported="false"
