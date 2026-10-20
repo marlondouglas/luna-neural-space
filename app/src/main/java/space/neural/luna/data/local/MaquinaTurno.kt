@@ -37,8 +37,15 @@ object MaquinaTurno {
     fun situacao(turnos: List<Turno>, hoje: String): Situacao {
         val dia = doDia(turnos, hoje)
         val abertoHoje = dia.filter { !it.deleted && it.estado in abertos }.maxByOrNull { it.ultimoEvento }
-        val abertoAnterior = turnos.filter { !it.deleted && it.estado in abertos && it.data != hoje }
-            .maxByOrNull { it.ultimoEvento }
+        val abertoAnterior = turnos.filter {
+            !it.deleted &&
+                it.estado in setOf(
+                    EstadoTurno.ATIVO,
+                    EstadoTurno.PAUSADO,
+                    EstadoTurno.CAFE
+                ) &&
+                it.data != hoje
+        }.maxByOrNull { it.ultimoEvento }
         val aberto = abertoHoje ?: abertoAnterior
         if (aberto != null) {
             val fase = when (aberto.estado) {
