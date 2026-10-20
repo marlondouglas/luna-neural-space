@@ -21,10 +21,24 @@ jobs:
           java-version: '17'
 
       - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+        shell: bash
+        run: |
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
+          export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
 
-      - name: Instalar Android SDK 37
-        run: sdkmanager "platforms;android-37" "build-tools;35.0.0"
+          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          elif [ -x "$ANDROID_SDK_ROOT/cmdline-tools/tools/bin/sdkmanager" ]; then
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/tools/bin:$PATH"
+          fi
+
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "SDK manager não encontrado no runner. Verifique a imagem do GitHub Actions."
+            exit 1
+          fi
+
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-37" "build-tools;35.0.0"
 
       - name: Preparar Gradle
         run: chmod +x ./gradlew
