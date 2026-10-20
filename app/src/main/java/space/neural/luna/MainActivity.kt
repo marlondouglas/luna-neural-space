@@ -108,6 +108,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private var periodo: Periodo = Periodo.HOJE
     private lateinit var noticias: NoticiasCard
     private lateinit var dica: DicaCard
+    private lateinit var mapCard: MapCard
+    private lateinit var radioCard: RadioCard
 
     private var painel: Painel? = null
     private var externo: Externo.Dados? = null
@@ -392,6 +394,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
         noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
         dica = DicaCard(ui, this)
+        mapCard = MapCard(ui, this)
+        radioCard = RadioCard(ui, this)
 
         val raiz = ui.vbox()
         raiz.addView(cab.view, ui.mp())
@@ -416,12 +420,12 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val ordem: List<View>
         when {
             cls == 1 -> {
-                ordem = listOf(kpis.view, turnoCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
                 raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             telefonePaisagem -> {
                 val esq = listOf(turnoCard.view, metas.view, calendario.view)
-                val dir = listOf(luna.view, kpis.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
+                val dir = listOf(luna.view, kpis.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
                 ordem = esq + dir
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
                 l.addView(coluna(R.id.rolagem_esquerda, *esq.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.4f))
@@ -429,7 +433,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
                 raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             cls == 2 -> {
-                ordem = listOf(kpis.view, turnoCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
                 val col = ui.vbox()
                 col.addView(kpis.view, ui.mp(ui.dp(4)))
                 val lado = ui.vbox().apply { addView(noticias.view, ui.mp()); addView(metas.view, ui.mp(gap)) }
