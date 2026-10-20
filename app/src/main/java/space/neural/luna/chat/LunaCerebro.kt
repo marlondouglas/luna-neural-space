@@ -83,6 +83,7 @@ class LocalCerebro : LunaCerebro {
                 if (r.temRecarga) "Energia hoje: ${Fmt.reais(r.energiaCentavos)}" + (if (r.energiaKwh > 0) " (${Fmt.kwh(r.energiaKwh)} kWh)." else ".")
                 else "Nenhuma recarga lançada hoje. Toque em Energia no resumo para lançar."
             tem(q, "gasto", "gastei") -> "Gastos de hoje: ${Fmt.reais(r.gastosCentavos)} (energia ${Fmt.reais(r.energiaCentavos)}, manutenção ${Fmt.reais(r.manutencaoCentavos)}, outros ${Fmt.reais(r.outrosCentavos)})."
+            tem(q, "limite", "limites", "envelope") -> "Para ver limites de gasto, abra o card Limites no painel ou diga o nome do limite (ex.: supermercado)."
             tem(q, "hora", "turno", "tempo") -> {
                 val agora = space.neural.luna.sync.Relogio.agora()
                 val t = painel.turno
@@ -101,7 +102,7 @@ class LocalCerebro : LunaCerebro {
             tem(q, "oi", "ola", "bom dia", "boa tarde", "boa noite") -> "Oi${space.neural.luna.conta.Conta.vocativo()}! " + if (r.temGanho) "Hoje você já fez ${Fmt.reais(r.liquidoCentavos)} de líquido." else "Pronto para começar?"
             tem(q, "obrigad", "valeu") -> "Por nada! Boa rota e bom trabalho. 💜"
             else -> "Estou sem internet agora, então respondo o básico: ganhos, metas, turno, energia, dicas e versículo. " +
-                "Também lanço corridas: diga, por exemplo, \"30 na Uber\"."
+                "Também lanço corridas e gastos: diga, por exemplo, \"30 na Uber\" ou \"20 de combustível\"."
         }
     }
 
@@ -119,12 +120,15 @@ class LocalCerebro : LunaCerebro {
 
 /**
  * Comandos que a Luna executa no aparelho (sem IA), antes de conversar:
- * - lançar ganho: "30 na Uber", "lança 45,50 no 99", "30 na Gogeta", "50 particular", "corrida particular de 40" — pergunta "é o total ou a mais?" (spec 2.2);
- * - turno: "iniciar turno", "pausar", "café", "retomar".
+ * - lançar ganho: "30 na Uber", "lança 45,50 no 99", "30 na Gogeta", "50 particular"
+ * - lançar gasto: "20 de combustível", "15 no supermercado", "30 de manutenção"
+ * - turno: "iniciar turno", "pausar", "café", "retomar"
+ * Ações financeiras pedem confirmação antes de gravar.
  */
 object Comandos {
     sealed interface Comando {
         data class Ganho(val app: String, val centavos: Long) : Comando
+        data class Gasto(val categoria: String, val centavos: Long, val descricao: String? = null) : Comando
         data class Turno(val acao: String) : Comando
     }
 
@@ -132,6 +136,24 @@ object Comandos {
 
     fun interpretar(texto: String): Comando? {
         val q = LocalCerebro.normalizar(texto).trim()
+
+        // Gastos por categoria ou limite
+        val catGasto = when {
+            LocalCerebro.tem(q, "combustivel", "gasolina", "diesel") -> "COMBUSTIVEL"
+            LocalCerebro.tem(q, "energia", "recarga", "kwh") -> "ENERGIA"
+            LocalCerebro.tem(q, "manutencao", "oficina", "pneu") -> "MANUTENCAO"
+            LocalCerebro.tem(q, "supermercado", "mercado") -> "SUPERMERCADO"
+            LocalCerebro.tem(q, "lanche", "comida", "alimentacao") -> "ALIMENTACAO"
+            LocalCerebro.tem(q, "estacionamento") -> "ESTACIONAMENTO"
+            else -> null
+        }
+        if (catGasto != null && !q.contains("?") && !LocalCerebro.tem(q, "quanto", "qual", "como")) {
+            val nums = valorRe.findAll(q).map { it.value }.toList()
+            val c = nums.firstNotNullOfOrNull { Calculos.parseCentavos(it) }
+            if (c != null) return Comando.Gasto(catGasto, c, null)
+        }
+
+        // Ganhos por app
         val app = when {
             Regex("\\b(indrive|in drive)\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.INDRIVE
             Regex("\\b(gogeta|go geta|gogueta)\\b").containsMatchIn(q) -> space.neural.luna.data.local.AppCorrida.GOGETA
@@ -150,6 +172,7 @@ object Comandos {
             val c = nums.firstNotNullOfOrNull { Calculos.parseCentavos(it) }
             if (c != null) return Comando.Ganho(app, c)
         }
+
         return when {
             Regex("^(iniciar|inicia|comecar|começar)( o)? turno").containsMatchIn(q) -> Comando.Turno("INICIAR")
             Regex("^(pausar|pausa)\\b").containsMatchIn(q) -> Comando.Turno("PAUSAR")
