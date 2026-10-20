@@ -25,7 +25,7 @@ fun cfg(key: String): String =
 
 android {
     namespace = "space.neural.luna"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "space.neural.luna"
