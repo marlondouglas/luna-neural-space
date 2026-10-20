@@ -42,6 +42,12 @@
             </intent-filter>
         </activity>
 
+        <!-- v0.1.8: Onboarding -->
+        <activity
+            android:name=".onboarding.OnboardingActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Luna" />
+
         <!-- v0.1.6: conta obrigatória e licença (teste grátis / assinatura). -->
         <activity
             android:name=".conta.LoginActivity"
