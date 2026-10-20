@@ -92,6 +92,22 @@
             android:exported="false"
             android:label="@string/atualizacao" />
 
+        <!-- v0.1.8: telas novas do PDF -->
+        <activity
+            android:name=".ofertas.OfertasActivity"
+            android:exported="false"
+            android:label="Ofertas" />
+
+        <activity
+            android:name=".radio.RadioActivity"
+            android:exported="false"
+            android:label="Rádio" />
+
+        <activity
+            android:name=".sos.SosActivity"
+            android:exported="false"
+            android:label="SOS" />
+
         <!-- Entrega o APK baixado ao instalador do Android. -->
         <provider
             android:name="androidx.core.content.FileProvider"
