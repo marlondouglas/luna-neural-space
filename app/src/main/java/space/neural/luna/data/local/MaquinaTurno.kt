@@ -30,15 +30,22 @@ object MaquinaTurno {
     fun doDia(turnos: List<Turno>, dia: String): List<Turno> =
         turnos.filter { !it.deleted && it.data == dia }.sortedWith(compareBy({ it.numero }, { it.inicio }))
 
+    /**
+     * Mantém o turno aberto em andamento ao cruzar a meia-noite. Só quando não há nenhum turno
+     * em andamento é que o novo dia volta para o turno 1, pronto para iniciar.
+     */
     fun situacao(turnos: List<Turno>, hoje: String): Situacao {
         val dia = doDia(turnos, hoje)
-        val aberto = turnos.filter { !it.deleted && it.estado in abertos }.maxByOrNull { it.ultimoEvento }
+        val abertoHoje = dia.filter { !it.deleted && it.estado in abertos }.maxByOrNull { it.ultimoEvento }
+        val abertoAnterior = turnos.filter { !it.deleted && it.estado in abertos && it.data != hoje }
+            .maxByOrNull { it.ultimoEvento }
+        val aberto = abertoHoje ?: abertoAnterior
         if (aberto != null) {
             val fase = when (aberto.estado) {
                 EstadoTurno.ATIVO -> Fase.ATIVO; EstadoTurno.PAUSADO -> Fase.PAUSADO
                 EstadoTurno.CAFE -> Fase.CAFE; else -> Fase.PRONTO
             }
-            val ant = dia.lastOrNull { it.numero < aberto.numero && it.estado == EstadoTurno.FECHADO }
+            val ant = if (aberto.data == hoje) dia.lastOrNull { it.numero < aberto.numero && it.estado == EstadoTurno.FECHADO } else null
             return Situacao(aberto.numero, fase, aberto, ant)
         }
         val ultimo = dia.lastOrNull() ?: return Situacao(1, Fase.PRONTO, null, null)
