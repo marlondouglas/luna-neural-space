@@ -46,7 +46,7 @@ jobs:
           echo "Usando SDK Manager em: $SDKMANAGER_PATH"
 
           yes | "$SDKMANAGER_PATH" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER_PATH" --install "platform-tools" "platforms;android-37" "build-tools;35.0.0"
+          "$SDKMANAGER_PATH" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Preparar Gradle
         run: chmod +x ./gradlew
