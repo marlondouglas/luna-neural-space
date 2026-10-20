@@ -23,22 +23,30 @@ jobs:
       - name: Configurar Android SDK
         shell: bash
         run: |
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
 
+          SDKMANAGER_PATH=""
           if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER_PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
             export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           elif [ -x "$ANDROID_SDK_ROOT/cmdline-tools/tools/bin/sdkmanager" ]; then
+            SDKMANAGER_PATH="$ANDROID_SDK_ROOT/cmdline-tools/tools/bin/sdkmanager"
             export PATH="$ANDROID_SDK_ROOT/cmdline-tools/tools/bin:$PATH"
+          elif command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER_PATH="$(command -v sdkmanager)"
           fi
 
-          if ! command -v sdkmanager >/dev/null 2>&1; then
-            echo "SDK manager não encontrado no runner. Verifique a imagem do GitHub Actions."
+          if [ -z "$SDKMANAGER_PATH" ]; then
+            echo "sdkmanager não foi encontrado no runner do GitHub Actions."
             exit 1
           fi
 
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;35.0.0"
+          echo "Usando SDK Manager em: $SDKMANAGER_PATH"
+
+          yes | "$SDKMANAGER_PATH" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER_PATH" --install "platform-tools" "platforms;android-37" "build-tools;35.0.0"
 
       - name: Preparar Gradle
         run: chmod +x ./gradlew
