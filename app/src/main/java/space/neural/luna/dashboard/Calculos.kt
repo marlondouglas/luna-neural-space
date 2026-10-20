@@ -140,7 +140,14 @@ object Calculos {
 
     data class PorApp(val app: String, val centavos: Long, val corridas: Int, val participacao: Int)
 
-    val APPS = listOf(AppCorrida.NOVENTA_E_NOVE, AppCorrida.UBER, AppCorrida.INDRIVE, AppCorrida.GOGETA, AppCorrida.PARTICULAR)
+    val APPS = listOf(
+        AppCorrida.NOVENTA_E_NOVE,
+        AppCorrida.UBER,
+        AppCorrida.INDRIVE,
+        AppCorrida.GOGETA,
+        AppCorrida.PARTICULAR,
+        AppCorrida.OUTRO,
+    )
 
     fun porApp(ganhos: List<Ganho>): List<PorApp> {
         val total = ganhos.sumOf { it.valorCentavos }
