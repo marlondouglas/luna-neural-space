@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.LifecycleCoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import space.neural.luna.data.local.AppCorrida
 import space.neural.luna.data.local.CategoriaGasto
@@ -79,25 +80,42 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         if (data != LocalDate.now().toString()) c.addView(ui.text("Dia: ${Fmt.dataLonga(LocalDate.parse(data))}", 14f, Cores.CIANO), ui.mp(ui.dp(8)))
         val dlg = AlertDialog.Builder(act)
             .setTitle(if (existente == null) "Lançar ganho" else "Editar ganho")
-            .setView(c)
+            .setView(android.widget.ScrollView(act).apply { addView(c) })
             .setPositiveButton("Salvar", null)
             .setNegativeButton("Cancelar", null)
             .create()
+
         dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val v = Calculos.parseCentavos(valor.text.toString()) ?: return@setOnClickListener erro("Digite um valor maior que zero.")
-                val d = desc.text.toString().trim().ifBlank { null }
-                scope.launch {
-                    repo.salvarGanho(
-                        existente?.copy(app = appSel(), valorCentavos = v, descricao = d)
-                            ?: Ganho(turnoId = turnoId, data = data, app = appSel(), valorCentavos = v, descricao = d)
-                    )
-                    depois()
+            val salvarBtn = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+            salvarBtn.setOnClickListener {
+                val valorCentavos = Calculos.parseCentavos(valor.text.toString())
+                if (valorCentavos == null || valorCentavos <= 0L) {
+                    erro("Digite um valor maior que zero.")
+                    return@setOnClickListener
                 }
-                dlg.dismiss()
+                val descricao = desc.text.toString().trim().ifBlank { null }
+                val item = existente?.copy(app = appSel(), valorCentavos = valorCentavos, descricao = descricao)
+                    ?: Ganho(turnoId = turnoId, data = data, app = appSel(), valorCentavos = valorCentavos, descricao = descricao)
+
+                salvarBtn.isEnabled = false
+                scope.launch {
+                    try {
+                        repo.salvarGanho(item)
+                        depois()
+                        act.runOnUiThread { dlg.dismiss() }
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (e: Exception) {
+                        act.runOnUiThread { erro("Não foi possível salvar o ganho. Verifique os dados e tente novamente.") }
+                    } finally {
+                        act.runOnUiThread { salvarBtn.isEnabled = true }
+                    }
+                }
             }
         }
-        dlg.show(); valor.requestFocus()
+
+        dlg.show()
+        valor.requestFocus()
     }
 
     /**
