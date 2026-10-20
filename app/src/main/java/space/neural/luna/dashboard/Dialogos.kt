@@ -38,7 +38,6 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
     /** Grupo de escolha única com botões (≥48dp). */
     private fun escolha(opcoes: List<Pair<String, String>>, inicial: String, aoMudar: (String) -> Unit = {}): Pair<LinearLayout, () -> String> {
         var atual = inicial
-        // Até 3 por linha (5 fontes de ganho cabem em 2 linhas no telefone).
         val grade = ui.vbox()
         var linha = ui.hbox()
         val botoes = mutableListOf<android.widget.Button>()
@@ -101,8 +100,8 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
     }
 
     /**
-     * Lançar (ou editar) um gasto. Energia = recarga elétrica do Geely: valor
-     * informado em R$ ou calculado pelos kWh × preço do kWh (o preço fica salvo).
+     * Lançar (ou editar) um gasto. Energia = recarga elétrica do Geely.
+     * Outro permite nome personalizado (ex.: Lanche, Pedagio, Estacionamento).
      */
     fun gasto(data: String, turnoId: String?, categoria: String? = null, existente: Gasto? = null, depois: () -> Unit = {}) {
         val c = corpo()
@@ -136,11 +135,14 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         }
         blocoEnergia.addView(ui.text("Recarga elétrica do Geely (não é combustível)", 14f, Cores.BRANCO_70))
         blocoEnergia.addView(modos, ui.mp(ui.dp(6)))
+        val nomeCustom = campo("Nome do gasto (ex.: Lanche, Pedagio)", existente?.descricao ?: "", decimal = false)
+        nomeCustom.visibility = if (inicialCat == CategoriaGasto.OUTRO) View.VISIBLE else View.GONE
         val (cats, catSel) = escolha(
             listOf(CategoriaGasto.ENERGIA to "Energia", CategoriaGasto.MANUTENCAO to "Manutenção", CategoriaGasto.OUTRO to "Outro"),
             inicialCat,
         ) { cat ->
             blocoEnergia.visibility = if (cat == CategoriaGasto.ENERGIA) View.VISIBLE else View.GONE
+            nomeCustom.visibility = if (cat == CategoriaGasto.OUTRO) View.VISIBLE else View.GONE
             if (cat != CategoriaGasto.ENERGIA) { porKwh = false }
             modo()
         }
@@ -150,6 +152,7 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         c.addView(ui.text("Tipo de gasto", 14f, Cores.BRANCO_70))
         c.addView(cats, ui.mp(ui.dp(6)))
         c.addView(blocoEnergia, ui.mp(ui.dp(14)))
+        c.addView(nomeCustom, ui.mp(ui.dp(12)))
         c.addView(valor, ui.mp(ui.dp(12)))
         c.addView(blocoKwh, ui.mp(ui.dp(12)))
         c.addView(desc, ui.mp(ui.dp(8)))
@@ -163,7 +166,8 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val cat = catSel()
-                val d = desc.text.toString().trim().ifBlank { null }
+                val nome = nomeCustom.text.toString().trim()
+                val d = if (cat == CategoriaGasto.OUTRO && nome.isNotBlank()) nome else desc.text.toString().trim().ifBlank { null }
                 val item: Gasto
                 if (cat == CategoriaGasto.ENERGIA && porKwh) {
                     val k = Calculos.parseDecimal(kwh.text.toString()) ?: return@setOnClickListener erro("Digite os kWh.")
@@ -231,7 +235,6 @@ class Dialogos(private val act: Activity, private val repo: LunaRepositories, pr
             .setPositiveButton(ok) { _, _ -> acao() }.setNegativeButton("Cancelar", null).show()
     }
 
-    /** Diálogo "Zerar tempo" (v0.1.5): uma opção por botão grande, com a explicação embaixo. */
     fun opcoes(titulo: String, itens: List<Triple<String, String, () -> Unit>>): AlertDialog {
         val c = corpo()
         var d: AlertDialog? = null
