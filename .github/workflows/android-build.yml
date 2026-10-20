@@ -1,0 +1,40 @@
+name: Rota GV - Compilar APK 0.1.8
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK 37
+        run: sdkmanager "platforms;android-37" "build-tools;35.0.0"
+
+      - name: Preparar Gradle
+        run: chmod +x ./gradlew
+
+      - name: Compilar APK de teste
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Guardar APK de teste
+        uses: actions/upload-artifact@v4
+        with:
+          name: rota-gv-0.1.8-teste-nao-publicar
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
