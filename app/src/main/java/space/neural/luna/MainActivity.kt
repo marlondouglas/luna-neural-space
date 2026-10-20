@@ -375,8 +375,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val telefonePaisagem = cls >= 2 && w > h && h < 480
         if (telefonePaisagem) cls = 2
         val tablet = cls >= 2 && !telefonePaisagem
-        val margem = ui.dp(if (tablet) 24 else 16)
-        val gap = ui.dp(if (tablet) 16 else 12)
+        val margem = ui.dp(if (tablet) 32 else 20)
+        val gap = ui.dp(if (tablet) 20 else 16)
 
         periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
         cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)

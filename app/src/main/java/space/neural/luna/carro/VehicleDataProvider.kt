@@ -1,19 +1,20 @@
 package space.neural.luna.carro
 
 /**
- * Stub para dados do veículo (EX Sapo / Geely). 
- * Quando as APIs estiverem disponíveis, implementar estados reais (bateria, autonomia, consumo).
- * Por enquanto retorna valores estáticos / placeholder.
+ * Dados do veículo (EX Sapo / Geely).
+ * Só retorna valores reais quando houver conexão verificada com a central.
+ * Sem telemetria válida, indica indisponível — nunca inventa bateria, autonomia ou consumo.
  */
 object VehicleDataProvider {
     data class Estado(
-        val bateriaPercent: Int = 75,
-        val autonomiaKm: Int = 260,
-        val consumoKwh100km: Double = 12.0,
-        val online: Boolean = true
+        val disponivel: Boolean = false,
+        val bateriaPercent: Int? = null,
+        val autonomiaKm: Int? = null,
+        val consumoKwh100km: Double? = null,
+        val mensagem: String = "Dados do veículo indisponíveis. Conecte a central do carro."
     )
 
-    fun atual(): Estado = Estado()
+    fun atual(): Estado = Estado() // Sem protocolo confirmado no momento
 
     fun estaEmModoCarro(prefs: android.content.SharedPreferences): Boolean =
         prefs.getString("dispositivo", "PHONE") == "CARRO"
