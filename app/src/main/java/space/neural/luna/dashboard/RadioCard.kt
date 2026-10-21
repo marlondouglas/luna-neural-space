@@ -44,8 +44,14 @@ class RadioCard(private val ui: Ui, private val activity: androidx.appcompat.app
             isEnabled = false
             setOnTouchListener { _, e ->
                 when (e.action) {
-                    android.view.MotionEvent.ACTION_DOWN -> { manager.startTalking(); true }
-                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { manager.stopTalking(); true }
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        activity.lifecycleScope.launch { manager.startTalking() }
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        activity.lifecycleScope.launch { manager.stopTalking() }
+                        true
+                    }
                     else -> false
                 }
             }
