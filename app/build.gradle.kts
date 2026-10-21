@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.zxing.core)
     implementation(libs.livekit.android)
+    implementation(libs.osmdroid.android)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

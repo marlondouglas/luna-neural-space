@@ -9,6 +9,8 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import space.neural.luna.voice.VoiceRoomManager
 import space.neural.luna.voice.HttpTokenProvider
 
@@ -25,6 +27,8 @@ class RadioCard(private val ui: Ui, private val activity: androidx.appcompat.app
     private val btnPtt: Button
     private val btnLeave: Button
     private val manager by lazy { VoiceRoomManager.get(activity) }
+    private val talkMutex = Mutex()
+    private var talking = false
 
     init {
         val root = ui.vbox().apply {
@@ -43,13 +47,23 @@ class RadioCard(private val ui: Ui, private val activity: androidx.appcompat.app
             text = "Apertar para falar"
             isEnabled = false
             setOnTouchListener { _, e ->
-                when (e.action) {
+                when (e.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
-                        activity.lifecycleScope.launch { manager.startTalking() }
+                        activity.lifecycleScope.launch {
+                            talkMutex.withLock {
+                                runCatching { manager.startTalking() }.onSuccess { talking = true }
+                                    .onFailure { status.text = "Erro ao ativar microfone: ${it.message}" }
+                            }
+                        }
                         true
                     }
                     android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                        activity.lifecycleScope.launch { manager.stopTalking() }
+                        activity.lifecycleScope.launch {
+                            talkMutex.withLock {
+                                runCatching { manager.stopTalking() }.onSuccess { talking = false }
+                                    .onFailure { status.text = "Erro ao desligar microfone: ${it.message}" }
+                            }
+                        }
                         true
                     }
                     else -> false
