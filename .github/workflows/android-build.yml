@@ -2,6 +2,10 @@ name: Rota GV - Compilar APK 0.1.8
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/0.1.12-correcoes
+      - consolidacao-0.1.12
 
 permissions:
   contents: read
