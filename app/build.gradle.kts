@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -5,17 +6,19 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// google-services.json é local (está no .gitignore). Sem ele, o app compila
-// normalmente e a sincronização com o Firebase fica desligada.
-val hasGoogleServices = file("google-services.json").exists()
-if (hasGoogleServices) {
-    apply(plugin = "com.google.gms.google-services")
-} else {
-    logger.warn("app/google-services.json não encontrado: build sem Firebase (sincronização desligada).")
-}
+val firebaseJsonFromEnv: String? = System.getenv("GOOGLE_SERVICES_JSON")
+    ?: System.getenv("GOOGLE_SERVICES_JSON_B64")?.takeIf { it.isNotBlank() }?.let { Base64.getDecoder().decode(it).decodeToString() }
 
-// Configuração do LiveKit lida de local.properties ou variáveis de ambiente.
-// Nunca coloque segredos (API secret do LiveKit) aqui nem no repositório.
+val firebaseFile = file("google-services.json")
+if (!firebaseFile.exists()) {
+    val firebaseJson = firebaseJsonFromEnv
+    if (firebaseJson.isNullOrBlank()) {
+        throw GradleException("Faltando app/google-services.json ou Google secret GOOGLE_SERVICES_JSON/GOOGLE_SERVICES_JSON_B64. O build foi interrompido para não gerar APK sem a nuvem original.")
+    }
+    firebaseFile.writeText(firebaseJson)
+}
+apply(plugin = "com.google.gms.google-services")
+
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -34,17 +37,14 @@ android {
         versionCode = 110
         versionName = "0.1.10"
 
-        buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
-        buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
-        // Conversa com a Luna: LUNA_CHAT_ENDPOINT ou, se vazio, o servidor de tokens com /chat no lugar de /token.
+        buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}"")
+        buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}"")
         val chat = cfg("LUNA_CHAT_ENDPOINT").ifBlank {
             cfg("LIVEKIT_TOKEN_ENDPOINT").takeIf { it.isNotBlank() }?.trimEnd('/')?.removeSuffix("/token")?.let { "$it/chat" } ?: ""
         }
         buildConfigField("String", "LUNA_CHAT_ENDPOINT", "\"$chat\"")
-        buildConfigField("boolean", "FIREBASE_CONFIGURED", hasGoogleServices.toString())
-        // Link de pagamento padrão (o Worker pode trocar pelo /license/check: campo checkoutUrl).
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", true.toString())
         buildConfigField("String", "CHECKOUT_URL", "\"${cfg("CHECKOUT_URL").ifBlank { "https://checkout.infinitepay.io/mduseimports/nDdXiu2DrZ" }}\"")
-        // WhatsApp do suporte (senha de conta por celular, comprovante do Pix, troca de aparelho).
         buildConfigField("String", "SUPPORT_WHATSAPP", "\"${cfg("SUPPORT_WHATSAPP").ifBlank { "5533987044866" }}\"")
     }
 
@@ -59,7 +59,6 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.all { t ->
             System.getProperty("luna.shots")?.let { t.systemProperty("luna.shots", it) }
-            // Teste de dois aparelhos no emulador do Firestore (opcional): -Dluna.emulador=127.0.0.1:8090
             System.getProperty("luna.emulador")?.let { t.systemProperty("luna.emulador", it) }
         }
     }
@@ -85,26 +84,15 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
-
-    // Armazenamento local (fonte da verdade, funciona offline)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
-
-    // Sincronização em segundo plano quando houver internet
     implementation(libs.work.runtime.ktx)
-
-    // Firebase (plano Spark): login anônimo + Firestore
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
-
-    // QR Code do Pix na tela de assinatura
     implementation(libs.zxing.core)
-
-    // Sala de voz / rádio
     implementation(libs.livekit.android)
-
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
