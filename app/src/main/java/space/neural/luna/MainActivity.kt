@@ -365,10 +365,310 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
             desenhar()
             atualizarBaixando()
             if (mudou && o) SyncManager.requestSync(this, agora = true)
-            if (!o) Toast.makeText(this, "Sem internet: sincroniza quando a conexão voltar.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Note: This is a partial representation; the full file from the local fixed version includes all remaining methods such as montarLayout, desenhar, etc.
-    // The actual upload uses the complete 37k character file.
+    // ---------------- Layout responsivo ----------------
+
+    private fun montarLayout(animar: Boolean) {
+        val cfg = resources.configuration
+        val w = cfg.screenWidthDp; val h = cfg.screenHeightDp
+        var cls = when { w < 600 -> 1; w < 840 -> 2; else -> 3 }
+        if (cfg.fontScale >= 1.5f) cls = (cls - 1).coerceAtLeast(1) // fonte grande: menos colunas
+        // Telefone deitado (altura baixa): 2 colunas, turno + resumo fixos à esquerda.
+        val telefonePaisagem = cls >= 2 && w > h && h < 480
+        if (telefonePaisagem) cls = 2
+        val tablet = cls >= 2 && !telefonePaisagem
+        val margem = ui.dp(if (tablet) 32 else 20)
+        val gap = ui.dp(if (tablet) 20 else 16)
+
+        periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
+        cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)
+        turnoCard = TurnoCard(ui, largo = false, a = this, orbDp = when { telefonePaisagem -> 150; cls == 3 -> 190; else -> 210 })
+        metas = MetasCard(ui, this)
+        kpis = KpiStrip(ui, colunas = if (telefonePaisagem || (cls == 1 && w < 600)) 2 else 4).apply { aoTocarLimites = { abrirLimites() } }
+        seletor = SeletorPeriodo(ui) { escolherPeriodo(it) }
+        grafico = GraficoCard(ui, alturaDp = when { cls == 3 -> 300; cls == 2 && !telefonePaisagem -> 260; else -> 200 })
+        roscas = RoscasCard(ui)
+        lancamentos = LancamentosCard(ui, this)
+        luna = LunaCard(ui, { falarComLuna() }, { conversar() }, { b -> perguntarLuna(b.comando, b.rotulo) }, { escolherFotoNota(it) })
+        relatorios = RelatoriosCard(ui) { startActivity(Intent(this, space.neural.luna.dashboard.RelatorioActivity::class.java)) }
+        calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
+        noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
+        dica = DicaCard(ui, this)
+        mapCard = MapCard(ui, this)
+        radioCard = RadioCard(ui, this)
+
+        val raiz = ui.vbox()
+        raiz.addView(cab.view, ui.mp())
+        bannerTeste = montarBanner()
+        raiz.addView(bannerTeste, ui.mp(ui.dp(8)))
+        if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(8)))
+
+        fun coluna(id: Int, vararg cards: View): ScrollView {
+            val col = ui.vbox()
+            cards.forEachIndexed { i, c -> col.addView(c, ui.mp(if (i == 0) 0 else gap)) }
+            col.setPadding(0, ui.dp(4), 0, gap)
+            col.clipToPadding = false; col.clipChildren = false
+            return ScrollView(this).apply { this.id = id; addView(col); isVerticalScrollBarEnabled = false; clipToPadding = false }
+        }
+        fun linha(vararg cards: View) = ui.hbox().apply {
+            gravity = android.view.Gravity.TOP
+            cards.forEachIndexed { i, c -> addView(c, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else gap }) }
+        }
+
+        // v0.1.5: sem "Resumo do dia" (ações no card do turno), sem "Ranking", limites resumidos no KPI;
+        // o clima de GV vira card de destaque e o gráfico de líquido ganha o espaço liberado.
+        val ordem: List<View>
+        when {
+            cls == 1 -> {
+                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
+                raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+            }
+            telefonePaisagem -> {
+                val esq = listOf(turnoCard.view, metas.view, calendario.view)
+                val dir = listOf(luna.view, kpis.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
+                ordem = esq + dir
+                val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
+                l.addView(coluna(R.id.rolagem_esquerda, *esq.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.4f))
+                l.addView(coluna(R.id.rolagem_direita, *dir.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
+                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+            }
+            cls == 2 -> {
+                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
+                val col = ui.vbox()
+                col.addView(kpis.view, ui.mp(ui.dp(4)))
+                val lado = ui.vbox().apply { addView(noticias.view, ui.mp()); addView(metas.view, ui.mp(gap)) }
+                col.addView(linha(turnoCard.view, lado), ui.mp(gap))
+                col.addView(relatorios.view, ui.mp(gap))
+                col.addView(seletor.view, ui.mp(gap))
+                col.addView(grafico.view, ui.mp(gap))
+                col.addView(linha(roscas.view, calendario.view), ui.mp(gap))
+                col.addView(lancamentos.view, ui.mp(gap))
+                col.addView(dica.view, ui.mp(gap))
+                col.setPadding(0, 0, 0, gap)
+                raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(col); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+            }
+            else -> {
+                ordem = listOf(kpis.view, turnoCard.view, metas.view, calendario.view, relatorios.view, seletor.view, grafico.view, lancamentos.view, noticias.view, roscas.view, dica.view)
+                raiz.addView(kpis.view, ui.mp(gap / 2))
+                val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
+                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, metas.view, calendario.view), LinearLayout.LayoutParams(0, -1, 1f))
+                l.addView(coluna(R.id.rolagem_col2, relatorios.view, seletor.view, grafico.view, lancamentos.view), LinearLayout.LayoutParams(0, -1, 1.15f).apply { leftMargin = gap })
+                l.addView(coluna(R.id.rolagem_col3, noticias.view, roscas.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
+                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+            }
+        }
+        // Galáxia com aurora animada atrás de tudo.
+        val tela = android.widget.FrameLayout(this)
+        tela.addView(GalaxiaView(this), android.widget.FrameLayout.LayoutParams(-1, -1))
+        tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
+        baixando = space.neural.luna.dashboard.BaixandoDados(ui, "Continuar sem esperar") { pularBaixando = true; atualizarBaixando() }
+            .also { tela.addView(it.view, android.widget.FrameLayout.LayoutParams(-1, -1)) }
+        setContentView(tela)
+        atualizarBaixando()
+        ViewCompat.setOnApplyWindowInsetsListener(raiz) { v, ins ->
+            val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(b.left + margem, b.top + margem / 2, b.right + margem, b.bottom); ins
+        }
+        if (animar) { Anima.entrada(cab.view, 0); if (!telefonePaisagem) Anima.entrada(luna.view, 1); ordem.forEachIndexed { i, v -> if (v !== luna.view || telefonePaisagem) Anima.entrada(v, i + 2) } }
+    }
+
+    private fun desenhar() {
+        val p = painel ?: run {
+            noticias.bind(externo, online, carregandoExterno); dica.bind(java.time.LocalDate.now()); return
+        }
+        val agora = space.neural.luna.sync.Relogio.agora()
+        cab.bind(p, online, BuildConfig.FIREBASE_CONFIGURED)
+        turnoCard.bind(p.situacao)
+        turnoCard.bindResumo(p, agora, sugerirParar(p, agora))
+        metas.bind(p, alertaMotivacional(p))
+        seletor.bind(periodo)
+        val e = p.estatisticas(periodo, agora)
+        kpis.bind(e); kpis.bindLimites(p.envelopes()); grafico.bind(e); roscas.bind(e); lancamentos.bind(e)
+        relatorios.bind(p); calendario.bind(p)
+        noticias.bind(externo, online, carregandoExterno)
+        dica.bind(p.hoje)
+    }
+
+    private fun sugerirParar(p: Painel, agora: Long): Boolean {
+        if (agora < prefs.getLong("parar_agora_nao_ate", 0)) return false
+        val trab = p.trabalhoDia(agora)
+        val ph = Calculos.porHoraCentavos(p.resumo.liquidoCentavos, trab)
+        return Calculos.sugerirParar(p.turno, trab, ph, prefs.getLong("limite_por_hora_centavos", LIMITE_POR_HORA_PADRAO))
+    }
+
+    /** Alerta motivacional: aparece uma vez por meta por limiar (80% e 100%) e fica até ser dispensado. */
+    private fun alertaMotivacional(p: Painel): Triple<String, String, Int>? {
+        var mostrar: Triple<String, String, Int>? = null
+        for (m in p.metas) {
+            val lim = Calculos.limiar(m) ?: continue
+            val chave = "alerta_${m.tipo}_${m.inicio}_$lim"
+            val nome = when (m.tipo) { TipoMeta.SEMANA -> "da semana"; TipoMeta.MES -> "do mês"; else -> "do dia" }
+            val texto = if (lim >= 100) "✓ Meta $nome batida! 🎉 +${Fmt.reaisCurto(m.acimaCentavos)} acima."
+            else "🔥 Falta pouco! Mais ${Fmt.reaisCurto(m.faltaCentavos)} e você bate a meta $nome."
+            when (prefs.getInt(chave, 0)) {
+                0 -> {
+                    prefs.edit().putInt(chave, 1).apply {
+                        if (lim >= 100) putInt("alerta_${m.tipo}_${m.inicio}_80", 2)
+                    }.apply()
+                    if (prefs.getBoolean("voz_alertas", true)) ler(texto)
+                    if (mostrar == null) mostrar = Triple(chave, texto, lim)
+                }
+                1 -> if (mostrar == null) mostrar = Triple(chave, texto, lim)
+            }
+        }
+        return mostrar
+    }
+
+    // ---------------- Ações ----------------
+
+    private fun comTurno(f: suspend (space.neural.luna.data.local.Turno) -> Unit) {
+        val t = painel?.turno ?: return
+        turno { f(t) }
+    }
+
+    override fun iniciar() { painel?.let { p -> turno { acoes.iniciar(p.situacao) } } }
+    override fun pausar() = comTurno { acoes.pausar(it) }
+    override fun cafe() = comTurno { acoes.cafe(it) }
+    /** Retomar pausa/café, retomar o turno 4 já fechado ou reabrir o dia concluído. */
+    override fun retomar() {
+        val t = painel?.situacao?.turno ?: return
+        turno { acoes.retomar(t) }
+    }
+    /** Fecha o turno sem bloquear: o próximo já fica pronto; a correção fica como opção no card. */
+    override fun fecharTurno() = comTurno {
+        acoes.fechar(it)
+        val msg = if (it.numero < MaquinaTurno.TOTAL) "Turno ${it.numero} fechado. Turno ${it.numero + 1} pronto para iniciar."
+        else "Turno 4 fechado. Você pode retomar ou concluir o dia."
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+    override fun concluir() {
+        val p = painel ?: return
+        dlg.confirmar("Concluir dia", "Encerra o dia de trabalho e guarda os turnos no histórico.", "Concluir dia") {
+            turno {
+                acoes.concluirDia(p.turnosTodos, p.situacao)
+                Toast.makeText(this@MainActivity, "Dia concluído e salvo no histórico.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    override fun corrigir() {
+        val s = painel?.situacao ?: return
+        (s.anterior ?: s.turno)?.let { startActivity(LancamentosActivity.correcao(this, it.id)) }
+    }
+    override fun zerar() {
+        val p = painel ?: return
+        val s = p.situacao
+        val hoje = java.time.LocalDate.now().toString()
+        val dia = MaquinaTurno.doDia(p.turnosTodos, hoje)
+        val n = s.numero
+        val itens = MaquinaTurno.opcoesZerar(s, dia).map { op ->
+            when (op) {
+                MaquinaTurno.OpcaoZerar.SO_ESTE -> Triple("Zerar só este turno",
+                    "O turno $n continua, com o contador em 00:00:00. Os ganhos lançados continuam.") {
+                    s.turno?.let { t -> turno { acoes.zerar(t) } }; Unit
+                }
+                MaquinaTurno.OpcaoZerar.VOLTAR -> Triple("Voltar para o turno anterior",
+                    "Desfaz o “Fechar turno”: apaga o turno $n e reabre o turno ${n - 1} com o tempo que ele já tinha.") {
+                    turno {
+                        val r = acoes.voltar(s, p.turnosTodos)
+                        val msg = when {
+                            r == null -> "Não deu para voltar: não achei o turno anterior."
+                            r.estado == space.neural.luna.data.local.EstadoTurno.PAUSADO -> "Turno ${r.numero} reaberto (pausado). Toque em Retomar para continuar."
+                            else -> "Turno ${r.numero} reaberto e contando."
+                        }
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    }; Unit
+                }
+                MaquinaTurno.OpcaoZerar.DIA -> Triple("Zerar o dia",
+                    "Apaga todos os turnos de hoje e volta para o Turno 1/${MaquinaTurno.TOTAL}. Ganhos e gastos ficam.") {
+                    val qtd = dia.size
+                    dlg.confirmar("Zerar o dia?",
+                        "Vou apagar ${if (qtd == 1) "o turno de hoje" else "os $qtd turnos de hoje"} e o dia volta para o Turno 1/${MaquinaTurno.TOTAL}, sem iniciar.\n\n" +
+                            "Os ganhos e gastos de hoje NÃO são apagados: continuam no resumo do dia.", "Sim, zerar o dia") {
+                        turno {
+                            acoes.zerarDia(p.turnosTodos, s)
+                            Toast.makeText(this@MainActivity, "Dia zerado. Turno 1 pronto para iniciar.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+        if (itens.isEmpty()) { Toast.makeText(this, "Nada para zerar: o turno ainda não começou.", Toast.LENGTH_SHORT).show(); return }
+        dlg.opcoes("Zerar tempo — turno $n", itens)
+    }
+    /** Toque no KPI "Limites": todos os limites do mês (barras, lançar gasto em cada um, Planejamento). */
+    private fun abrirLimites() {
+        val p = painel ?: return
+        val card = LimitesCard(ui, this).apply { bind(p) }
+        val d = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(ScrollView(this).apply { addView(card.view); setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)) })
+            .setNegativeButton("Fechar", null).create()
+        limitesDialogo = d
+        d.setOnDismissListener { if (limitesDialogo === d) limitesDialogo = null }
+        d.show()
+    }
+    private var limitesDialogo: androidx.appcompat.app.AlertDialog? = null
+
+    override fun diaEsquecido() = dlg.escolherDia { startActivity(LancamentosActivity.dia(this, it.toString())) }
+    override fun detalheDia() = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString()))
+    override fun abrirDia(data: String) = startActivity(LancamentosActivity.dia(this, data))
+    private fun escolherPeriodo(p: Periodo) {
+        if (p == periodo) return
+        periodo = p; prefs.edit().putString("periodo", p.name).apply(); desenhar()
+    }
+    override fun detalheApp(app: String) = startActivity(LancamentosActivity.dia(this, java.time.LocalDate.now().toString(), app))
+    override fun lancarGanho(app: String?) = dlg.ganho(java.time.LocalDate.now().toString(), painel?.turno?.id, app)
+    override fun lancarGasto(categoria: String?) = dlg.gasto(java.time.LocalDate.now().toString(), painel?.turno?.id, categoria)
+    override fun gastoEnvelope(e: space.neural.luna.dashboard.Plano.Envelope) { limitesDialogo?.dismiss(); dlg.gastoEnvelope(e.limite, e.restanteCentavos) }
+    override fun planejamento() { limitesDialogo?.dismiss(); startActivity(Intent(this, space.neural.luna.config.PlanejamentoActivity::class.java)) }
+    override fun dispensarAlerta(chave: String) { prefs.edit().putInt(chave, 2).apply(); desenhar() }
+    override fun pararAgoraNao() { prefs.edit().putLong("parar_agora_nao_ate", System.currentTimeMillis() + 60 * 60_000L).apply(); desenhar() }
+
+    override fun atualizarNoticias() {
+        if (carregandoExterno) return
+        carregandoExterno = true; desenhar()
+        lifecycleScope.launch {
+            val d = Externo.atualizar(this@MainActivity)
+            carregandoExterno = false
+            if (d != null) externo = d
+            else if (online) Toast.makeText(this@MainActivity, "Não foi possível atualizar agora.", Toast.LENGTH_SHORT).show()
+            desenhar()
+        }
+    }
+
+    override fun abrirNoticia(n: Externo.Noticia) {
+        if (!online) { Toast.makeText(this, "Disponível quando houver internet.", Toast.LENGTH_SHORT).show(); return }
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(n.link))) }
+            .onFailure { Toast.makeText(this, "Nenhum navegador encontrado.", Toast.LENGTH_SHORT).show() }
+    }
+
+    override fun previsaoHoras() {
+        val c = externo?.clima ?: return
+        val txt = c.horas.joinToString("\n") { "${it.hora}   ${Math.round(it.tempC)}°   chuva ${it.chuva}%" }
+        AlertDialog.Builder(this).setTitle("Previsão por hora — Valadares").setMessage(txt).setPositiveButton("Fechar", null).show()
+    }
+
+    /** Fala da Luna (respostas e alertas): voz Kore do servidor com a boca sincronizada; reserva: voz do Android. */
+    override fun ler(texto: String) = space.neural.luna.avatar.LunaVoz.falar(this, texto)
+
+    override fun compartilhar(texto: String) {
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, texto), "Compartilhar"))
+    }
+
+    override fun conversar() = startActivity(Intent(this, ChatActivity::class.java))
+
+    override fun sincronizar() {
+        SyncManager.requestSync(this, agora = true)
+        space.neural.luna.sync.RealtimeSync.sincronizarAgora()
+        Toast.makeText(this, if (online) "Sincronizando…" else "Sem internet: sincroniza quando a conexão voltar.", Toast.LENGTH_SHORT).show()
+    }
+
+    /** v0.1.5: a engrenagem abre a tela de Configurações (substitui o menu de três pontinhos). */
+    override fun menu(ancora: View) = startActivity(Intent(this, space.neural.luna.config.ConfiguracoesActivity::class.java))
+
+    companion object {
+        /** Sugestão de parar abaixo de R$ 20/h de líquido (depois de 2 h de trabalho). */
+        const val LIMITE_POR_HORA_PADRAO = 2000L
+    }
 }
