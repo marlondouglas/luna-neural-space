@@ -59,6 +59,10 @@ class ConfiguracoesActivity : AppCompatActivity() {
                     .setPositiveButton("Sair") { _, _ -> sairDaConta() }.setNegativeButton("Cancelar", null).show()
             }
         }
+        grupo(c, R.drawable.ic_info, "Mapa e Rádio", Cores.CIANO) { g ->
+            item(g, R.drawable.ic_info, "Mapa e Rádio", "Posição, motoristas online e Waze") { startActivity(android.content.Intent(this, space.neural.luna.pages.MapRadioActivity::class.java)) }
+            item(g, R.drawable.ic_mic, "Rádio dos Motoristas", "Voz entre motoristas") { startActivity(android.content.Intent(this, space.neural.luna.pages.RadioActivity::class.java)) }
+        }
         grupo(c, R.drawable.ic_info, "Sistema", Cores.ESMERALDA) { g ->
             item(g, R.drawable.ic_refresh, getString(R.string.atualizacao), "Procurar nova versão do app") { startActivity(Intent(this, AtualizacaoActivity::class.java)) }
             val v = ui.hbox().apply { minimumHeight = ui.dp(48) }

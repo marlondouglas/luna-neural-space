@@ -49,7 +49,12 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
     private val continua get() = prefs.getBoolean("conversa_continua", true)
     private val bargeInLigado get() = prefs.getBoolean("barge_in", true)
 
-    fun disponivel() = SpeechRecognizer.isRecognitionAvailable(act)
+    fun disponivel(): Boolean {
+        // Flyme Auto / multimídia de carro frequentemente retorna false em isRecognitionAvailable
+        // mesmo com microfone físico presente. Tentamos criar o reconhecedor de qualquer forma.
+        if (SpeechRecognizer.isRecognitionAvailable(act)) return true
+        return runCatching { SpeechRecognizer.createSpeechRecognizer(act).also { it.destroy() } }.isSuccess
+    }
     fun temPermissao() = act.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     /** Primeiro toque: para a Luna (se estiver falando) e começa a ouvir. */
