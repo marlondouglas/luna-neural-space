@@ -37,8 +37,8 @@ android {
         versionCode = 112
         versionName = "0.1.12"
 
-        buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}"")
-        buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}"")
+        buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
+        buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
         val chat = cfg("LUNA_CHAT_ENDPOINT").ifBlank {
             cfg("LIVEKIT_TOKEN_ENDPOINT").takeIf { it.isNotBlank() }?.trimEnd('/')?.removeSuffix("/token")?.let { "$it/chat" } ?: ""
         }
