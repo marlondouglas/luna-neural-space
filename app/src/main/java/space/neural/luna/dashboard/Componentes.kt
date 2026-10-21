@@ -776,13 +776,57 @@ class LimitesCard(private val ui: Ui, private val a: AcoesPainel) {
         view.addView(lista, ui.mp(ui.dp(4)))
     }
 
+    private var idx = 0
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var envsCache: List<space.neural.luna.dashboard.Plano.Envelope> = emptyList()
+    private val rotacionar = object : Runnable {
+        override fun run() {
+            if (envsCache.isNotEmpty()) {
+                idx = (idx + 1) % envsCache.size
+                desenharUm(envsCache[idx])
+            }
+            handler.postDelayed(this, 5000)
+        }
+    }
+
     fun bind(p: Painel) {
         lista.removeAllViews()
         val envs = p.envelopes()
+        envsCache = envs
+        handler.removeCallbacks(rotacionar)
         if (envs.isEmpty()) {
-            lista.addView(ui.text("Nenhum limite ainda. Crie envelopes (ex.: Supermercado R$ 1.000) no Planejamento.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
+            lista.addView(ui.text("Nenhum limite ainda. Crie envelopes (ex.: Supermercado R$ 800) no Planejamento.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
             return
         }
+        idx = idx.coerceIn(0, envs.size - 1)
+        desenharUm(envs[idx])
+        handler.postDelayed(rotacionar, 5000)
+    }
+
+    private fun desenharUm(e: space.neural.luna.dashboard.Plano.Envelope) {
+        lista.removeAllViews()
+        val cor = when { e.excedido -> Cores.CORAL; e.fracao >= 0.8f -> Cores.LARANJA; else -> Cores.ESMERALDA }
+        val box = ui.vbox().apply {
+            contentDescription = "${e.limite.nome}: gastou ${Fmt.reais(e.gastoCentavos)} de ${Fmt.reais(e.limite.limiteCentavos)}. " +
+                (if (e.excedido) "Passou ${Fmt.reais(e.excessoCentavos)} do limite." else "Ainda pode gastar ${Fmt.reais(e.restanteCentavos)}.")
+            isFocusable = true; isClickable = true; minimumHeight = ui.dp(64)
+            setOnClickListener { a.gastoEnvelope(e) }
+        }
+        box.addView(ui.hbox().apply {
+            addView(ui.ajustavel(e.limite.nome, 16f, 12f, Cores.BRANCO), ui.peso(1f))
+            addView(ui.ajustavel("${Fmt.reaisCurto(e.gastoCentavos)} / ${Fmt.reaisCurto(e.limite.limiteCentavos)}", 15f, 11f, cor), ui.wc(ui.dp(8)))
+        })
+        box.addView(BarraH3D(ui.ctx).apply { definir(e.fracao.coerceIn(0f, 1f), cor) }, ui.mp(ui.dp(4)))
+        box.addView(ui.text(
+            if (e.excedido) "⚠ Passou ${Fmt.reais(e.excessoCentavos)} do limite" else "Ainda pode gastar ${Fmt.reais(e.restanteCentavos)}",
+            13f, if (e.excedido) Cores.CORAL else Cores.BRANCO_70, bold = e.excedido,
+        ), ui.mp(ui.dp(2)))
+        lista.addView(box, ui.mp(ui.dp(6)))
+    }
+
+    // legado: lista completa (não usada no modo carrossel)
+    private fun bindLista(p: Painel) {
+        val envs = p.envelopes()
         envs.forEachIndexed { i, e ->
             val cor = when { e.excedido -> Cores.CORAL; e.fracao >= 0.8f -> Cores.LARANJA; else -> Cores.ESMERALDA }
             val box = ui.vbox().apply {
