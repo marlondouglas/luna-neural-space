@@ -56,8 +56,6 @@ import space.neural.luna.dashboard.TurnoAcoes
 import space.neural.luna.data.local.MaquinaTurno
 import space.neural.luna.dashboard.TurnoCard
 import space.neural.luna.dashboard.Ui
-import space.neural.luna.dashboard.MapCard
-import space.neural.luna.dashboard.RadioCard
 import space.neural.luna.data.local.TipoMeta
 import space.neural.luna.data.repo.LunaRepositories
 import space.neural.luna.sync.SyncManager
@@ -110,9 +108,6 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private var periodo: Periodo = Periodo.HOJE
     private lateinit var noticias: NoticiasCard
     private lateinit var dica: DicaCard
-    private lateinit var mapCard: MapCard
-    private lateinit var radioCard: RadioCard
-
     private var painel: Painel? = null
     private var externo: Externo.Dados? = null
     private var carregandoExterno = false
@@ -127,13 +122,6 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!portaoLicenca()) { bloqueada = true; return }
-        // v0.1.8: onboarding (modalidade / dispositivo / modo carro)
-        val onb = getSharedPreferences("onboarding", MODE_PRIVATE)
-        if (!onb.getBoolean("done", false)) {
-            startActivity(android.content.Intent(this, space.neural.luna.onboarding.OnboardingActivity::class.java))
-            finish()
-            return
-        }
         ui = Ui(this); repo = LunaRepositories(this); acoes = TurnoAcoes(repo) { space.neural.luna.sync.RealtimeSync.guarda(this) }; dlg = Dialogos(this, repo, lifecycleScope)
         online = temInternet()
         externo = Externo.cache(this)
@@ -379,8 +367,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val telefonePaisagem = cls >= 2 && w > h && h < 480
         if (telefonePaisagem) cls = 2
         val tablet = cls >= 2 && !telefonePaisagem
-        val margem = ui.dp(if (tablet) 32 else 20)
-        val gap = ui.dp(if (tablet) 20 else 16)
+        val margem = ui.dp(if (tablet) 24 else 16)
+        val gap = ui.dp(if (tablet) 16 else 12)
 
         periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
         cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)
@@ -396,9 +384,6 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
         noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
         dica = DicaCard(ui, this)
-        mapCard = MapCard(ui, this)
-        radioCard = RadioCard(ui, this)
-
         val raiz = ui.vbox()
         raiz.addView(cab.view, ui.mp())
         bannerTeste = montarBanner()
@@ -422,12 +407,12 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val ordem: List<View>
         when {
             cls == 1 -> {
-                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
                 raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             telefonePaisagem -> {
                 val esq = listOf(turnoCard.view, metas.view, calendario.view)
-                val dir = listOf(luna.view, kpis.view, mapCard.view, radioCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
+                val dir = listOf(luna.view, kpis.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
                 ordem = esq + dir
                 val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
                 l.addView(coluna(R.id.rolagem_esquerda, *esq.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.4f))
@@ -435,7 +420,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
                 raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
             }
             cls == 2 -> {
-                ordem = listOf(kpis.view, turnoCard.view, mapCard.view, radioCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
+                ordem = listOf(kpis.view, turnoCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
                 val col = ui.vbox()
                 col.addView(kpis.view, ui.mp(ui.dp(4)))
                 val lado = ui.vbox().apply { addView(noticias.view, ui.mp()); addView(metas.view, ui.mp(gap)) }
