@@ -1,4 +1,4 @@
-name: Rota GV - Compilar APK 0.1.8
+name: Rota GV - Compilar APK 0.1.10
 
 on:
   workflow_dispatch:
@@ -10,9 +10,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
-      - name: Baixar codigo
+      - name: Baixar código
         uses: actions/checkout@v4
+
+      - name: Validar Firebase e assinatura original
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GOOGLE_SERVICES_JSON:-${GOOGLE_SERVICES_JSON_B64:-}}" ]; then
+            echo "::error::Faltando secret GOOGLE_SERVICES_JSON ou GOOGLE_SERVICES_JSON_B64. O build foi interrompido para não gerar APK sem a nuvem original."
+            exit 1
+          fi
+          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ] && [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
+            printf '%s' "${GOOGLE_SERVICES_JSON_B64}" | base64 -d > app/google-services.json
+          else
+            printf '%s' "${GOOGLE_SERVICES_JSON}" > app/google-services.json
+          fi
+          if [ -n "${ANDROID_KEYSTORE_B64:-}" ]; then
+            printf '%s' "${ANDROID_KEYSTORE_B64}" | base64 -d > app/release-keystore.jks
+            cat > keystore.properties <<EOF
+storeFile=app/release-keystore.jks
+storePassword=${ANDROID_KEYSTORE_PASSWORD:-}
+keyAlias=${ANDROID_KEY_ALIAS:-}
+keyPassword=${ANDROID_KEY_PASSWORD:-}
+EOF
+          else
+            echo "::error::Faltando secret ANDROID_KEYSTORE_B64. O build foi interrompido para não gerar uma atualização incompatível sem a assinatura original."
+            exit 1
+          fi
 
       - name: Configurar Java 17
         uses: actions/setup-java@v4
@@ -26,7 +59,6 @@ jobs:
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
-
           SDKMANAGER_PATH=""
           if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             SDKMANAGER_PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
@@ -37,14 +69,11 @@ jobs:
           elif command -v sdkmanager >/dev/null 2>&1; then
             SDKMANAGER_PATH="$(command -v sdkmanager)"
           fi
-
           if [ -z "$SDKMANAGER_PATH" ]; then
             echo "sdkmanager não foi encontrado no runner do GitHub Actions."
             exit 1
           fi
-
           echo "Usando SDK Manager em: $SDKMANAGER_PATH"
-
           yes | "$SDKMANAGER_PATH" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER_PATH" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
@@ -52,11 +81,11 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Compilar APK de teste
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
 
       - name: Guardar APK de teste
         uses: actions/upload-artifact@v4
         with:
-          name: rota-gv-0.1.8-teste-nao-publicar
+          name: rota-gv-0.1.10-teste-nao-publicar
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
