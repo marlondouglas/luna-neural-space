@@ -1,0 +1,1 @@
+name: Teste ROTA GV. on: workflow underline dispatch. jobs: teste, runs on: ubuntu hífen latest. steps: name: Verificar funcionamento, run: echo “GitHub Actions funcionando!”
