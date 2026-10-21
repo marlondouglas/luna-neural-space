@@ -124,7 +124,9 @@ data class Painel(
             plano: Planejamento? = null, contas: List<ContaFixa> = emptyList(), limites: List<Limite> = emptyList(),
         ): Painel {
             val h = hoje.toString()
-            val situacao = MaquinaTurno.situacao(turnos, h)
+            val agora = System.currentTimeMillis()
+            val turnosAjustados = MaquinaTurno.fecharDiaAnterior(turnos, h, agora)
+            val situacao = MaquinaTurno.situacao(turnosAjustados, h)
             val corrente = situacao.turno?.takeIf { it.estado != EstadoTurno.CONCLUIDO }
             val idsLimites = limites.map { it.id }.toSet()
             // Gasto com envelope é pessoal (supermercado, lanche): fica fora do líquido do trabalho.

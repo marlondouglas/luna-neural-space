@@ -60,7 +60,7 @@ class ConfiguracoesActivity : AppCompatActivity() {
             }
         }
         grupo(c, R.drawable.ic_info, "Mapa e Rádio", Cores.CIANO) { g ->
-            item(g, R.drawable.ic_info, "Mapa", "GPS e Waze") { startActivity(Intent(this, space.neural.luna.pages.MapActivity::class.java)) }
+            item(g, R.drawable.ic_info, "Mapa e Rádio", "Mapa + voz LiveKit na mesma tela") { startActivity(Intent(this, space.neural.luna.pages.MapRadioActivity::class.java)) }
             item(g, R.drawable.ic_mic, "Rádio dos Motoristas", "Voz LiveKit entre motoristas") { startActivity(Intent(this, space.neural.luna.pages.RadioActivity::class.java)) }
             item(g, R.drawable.ic_chat, "Página Luna", "Assistente de voz dedicado") { startActivity(Intent(this, space.neural.luna.pages.LunaPageActivity::class.java)) }
         }

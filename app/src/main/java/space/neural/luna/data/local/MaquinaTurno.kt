@@ -31,10 +31,20 @@ object MaquinaTurno {
         turnos.filter { !it.deleted && it.data == dia }.sortedWith(compareBy({ it.numero }, { it.inicio }))
 
     /**
-     * Mantém o turno aberto em andamento ao cruzar a meia-noite. Só quando não há nenhum turno
-     * em andamento é que o novo dia volta para o turno 1, pronto para iniciar.
+     * À meia-noite qualquer turno aberto do dia anterior é encerrado e o novo dia começa no turno 1.
+     * O dia é o que manda, não o turno.
      */
-    fun situacao(turnos: List<Turno>, hoje: String): Situacao {
+    
+    /** Encerra qualquer turno aberto de dias anteriores à meia-noite. Idempotente. */
+    fun fecharDiaAnterior(turnos: List<Turno>, hoje: String, agora: Long): List<Turno> {
+        return turnos.map { t ->
+            if (!t.deleted && t.data < hoje && t.estado in setOf(EstadoTurno.ATIVO, EstadoTurno.PAUSADO, EstadoTurno.CAFE)) {
+                mudar(t, EstadoTurno.FECHADO, agora)
+            } else t
+        }
+    }
+
+fun situacao(turnos: List<Turno>, hoje: String): Situacao {
         val dia = doDia(turnos, hoje)
         val abertoHoje = dia.filter { !it.deleted && it.estado in abertos }.maxByOrNull { it.ultimoEvento }
         val abertoAnterior = turnos.filter {
