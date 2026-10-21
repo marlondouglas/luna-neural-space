@@ -12,12 +12,13 @@ val firebaseJsonFromEnv: String? = System.getenv("GOOGLE_SERVICES_JSON")
 val firebaseFile = file("google-services.json")
 if (!firebaseFile.exists()) {
     val firebaseJson = firebaseJsonFromEnv
-    if (firebaseJson.isNullOrBlank()) {
-        throw GradleException("Faltando app/google-services.json ou Google secret GOOGLE_SERVICES_JSON/GOOGLE_SERVICES_JSON_B64. O build foi interrompido para não gerar APK sem a nuvem original.")
+    if (!firebaseJson.isNullOrBlank()) {
+        firebaseFile.writeText(firebaseJson)
     }
-    firebaseFile.writeText(firebaseJson)
 }
-apply(plugin = "com.google.gms.google-services")
+if (firebaseFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
 
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
@@ -43,7 +44,7 @@ android {
             cfg("LIVEKIT_TOKEN_ENDPOINT").takeIf { it.isNotBlank() }?.trimEnd('/')?.removeSuffix("/token")?.let { "$it/chat" } ?: ""
         }
         buildConfigField("String", "LUNA_CHAT_ENDPOINT", "\"$chat\"")
-        buildConfigField("boolean", "FIREBASE_CONFIGURED", true.toString())
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseFile.exists().toString())
         buildConfigField("String", "CHECKOUT_URL", "\"${cfg("CHECKOUT_URL").ifBlank { "https://checkout.infinitepay.io/mduseimports/nDdXiu2DrZ" }}\"")
         buildConfigField("String", "SUPPORT_WHATSAPP", "\"${cfg("SUPPORT_WHATSAPP").ifBlank { "5533987044866" }}\"")
     }
