@@ -59,11 +59,6 @@ class ConfiguracoesActivity : AppCompatActivity() {
                     .setPositiveButton("Sair") { _, _ -> sairDaConta() }.setNegativeButton("Cancelar", null).show()
             }
         }
-        grupo(c, R.drawable.ic_info, "Mapa e Rádio", Cores.CIANO) { g ->
-            item(g, R.drawable.ic_info, "Mapa e Rádio", "Mapa + voz LiveKit na mesma tela") { startActivity(Intent(this, space.neural.luna.pages.MapRadioActivity::class.java)) }
-            item(g, R.drawable.ic_mic, "Rádio dos Motoristas", "Voz LiveKit entre motoristas") { startActivity(Intent(this, space.neural.luna.pages.RadioActivity::class.java)) }
-            item(g, R.drawable.ic_chat, "Página Luna", "Assistente de voz dedicado") { startActivity(Intent(this, space.neural.luna.pages.LunaPageActivity::class.java)) }
-        }
         grupo(c, R.drawable.ic_info, "Sistema", Cores.ESMERALDA) { g ->
             item(g, R.drawable.ic_refresh, getString(R.string.atualizacao), "Procurar nova versão do app") { startActivity(Intent(this, AtualizacaoActivity::class.java)) }
             val v = ui.hbox().apply { minimumHeight = ui.dp(48) }

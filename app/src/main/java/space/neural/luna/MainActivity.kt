@@ -450,6 +450,17 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
         baixando = space.neural.luna.dashboard.BaixandoDados(ui, "Continuar sem esperar") { pularBaixando = true; atualizarBaixando() }
             .also { tela.addView(it.view, android.widget.FrameLayout.LayoutParams(-1, -1)) }
+        // Barra inferior: acesso ao Rádio/Mapa (conforme mockup)
+        val barraRadio = ui.hbox().apply {
+            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+            setBackgroundColor(Cores.alpha(Cores.OBSIDIAN, 0.92f))
+        }
+        val btnRadio = ui.botao("Rádio", Ui.Estilo.CHEIO_VIOLETA) {
+            startActivity(android.content.Intent(this, space.neural.luna.pages.MapRadioActivity::class.java))
+        }
+        barraRadio.addView(btnRadio, ui.mp())
+        raiz.addView(barraRadio)
+
         setContentView(tela)
         atualizarBaixando()
         ViewCompat.setOnApplyWindowInsetsListener(raiz) { v, ins ->

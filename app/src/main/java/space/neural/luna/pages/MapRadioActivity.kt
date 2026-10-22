@@ -24,6 +24,7 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 import space.neural.luna.carro.MediaLauncher
 import space.neural.luna.dashboard.Cores
 import space.neural.luna.dashboard.Ui
@@ -96,7 +97,15 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
             })
         }
         esq.addView(ui.botao("Mostrar rota no mapa", Ui.Estilo.CHEIO_VIOLETA) {
-            statusMapa.text = "Rota: integração de roteamento pendente"
+            val dest = busca.text.toString().trim()
+            if (dest.isEmpty()) { statusMapa.text = "Digite um endereço."; return@botao }
+            val origem = myMarker?.position ?: GeoPoint(-18.851, -41.949)
+            // Geocoding simples: usa Nominatim
+            lifecycleScope.launch {
+                val pt = runCatching { geocodificar(dest) }.getOrNull()
+                if (pt == null) { statusMapa.text = "Endereço não encontrado."; return@launch }
+                desenharRota(origem, pt)
+            }
         }, ui.mp(ui.dp(8)))
         corpo.addView(esq)
 
@@ -288,4 +297,53 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
         map.onDetach()
         super.onDestroy()
     }
+
+    private fun desenharRota(de: GeoPoint, para: GeoPoint) {
+        lifecycleScope.launch {
+            val pontos = runCatching { buscarRotaOsrm(de, para) }.getOrNull()
+            if (pontos.isNullOrEmpty()) {
+                statusMapa.text = "Rota não encontrada. Verifique o endereço."
+                return@launch
+            }
+            map.overlays.removeAll { it is Polyline }
+            val linha = Polyline().apply {
+                setPoints(pontos)
+                outlinePaint.color = Cores.CIANO
+                outlinePaint.strokeWidth = 8f
+            }
+            map.overlays.add(linha)
+            map.invalidate()
+            val km = pontos.zipWithNext().sumOf { (a, b) ->
+                val r = FloatArray(1)
+                android.location.Location.distanceBetween(a.latitude, a.longitude, b.latitude, b.longitude, r)
+                r[0].toDouble()
+            } / 1000.0
+            statusMapa.text = "Rota: ${"%.1f".format(km)} km"
+        }
+    }
+
+    private suspend fun buscarRotaOsrm(de: GeoPoint, para: GeoPoint): List<GeoPoint>? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val url = "https://router.project-osrm.org/route/v1/driving/${de.longitude},${de.latitude};${para.longitude},${para.latitude}?overview=full&geometries=geojson"
+            val json = java.net.URL(url).readText()
+            val arr = org.json.JSONObject(json).optJSONArray("routes") ?: return@withContext null
+            if (arr.length() == 0) return@withContext null
+            val coords = arr.getJSONObject(0).getJSONObject("geometry").getJSONArray("coordinates")
+            (0 until coords.length()).map { i ->
+                val c = coords.getJSONArray(i)
+                GeoPoint(c.getDouble(1), c.getDouble(0))
+            }
+        }
+
+
+    private suspend fun geocodificar(endereco: String): GeoPoint? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val q = java.net.URLEncoder.encode("$endereco, Governador Valadares", "UTF-8")
+            val url = "https://nominatim.openstreetmap.org/search?q=$q&format=json&limit=1"
+            val arr = org.json.JSONArray(java.net.URL(url).readText())
+            if (arr.length() == 0) return@withContext null
+            val o = arr.getJSONObject(0)
+            GeoPoint(o.getDouble("lat"), o.getDouble("lon"))
+        }
+
 }
