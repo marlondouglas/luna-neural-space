@@ -6,9 +6,12 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.view.Gravity
 import android.view.MotionEvent
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -24,59 +27,127 @@ import org.osmdroid.views.overlay.Marker
 import space.neural.luna.carro.MediaLauncher
 import space.neural.luna.dashboard.Cores
 import space.neural.luna.dashboard.Ui
-import space.neural.luna.dashboard.telaSimples
 import space.neural.luna.voice.HttpTokenProvider
 import space.neural.luna.voice.VoiceRoomManager
 
 /**
- * Tela única de MAPA + RÁDIO (conforme PDF).
- * Mapa OSM com posição atual e controles de rádio LiveKit na mesma página.
+ * Tela MAPA + RÁDIO conforme o mockup.
+ * Estrutura: topo (salas), esquerda (rota), centro (mapa), direita (online + chat),
+ * baixo (PTT + status). Usuários reais via LiveKit; posições de terceiros exigem backend.
  */
 class MapRadioActivity : AppCompatActivity(), LocationListener {
     private lateinit var ui: Ui
-    private lateinit var status: TextView
     private lateinit var map: MapView
     private var myMarker: Marker? = null
     private val lm by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
     private val manager by lazy { VoiceRoomManager.get(this) }
     private val talkMutex = Mutex()
     private var talking = false
+
+    private lateinit var statusMapa: TextView
+    private lateinit var listaOnline: LinearLayout
+    private lateinit var chatLista: LinearLayout
     private lateinit var btnPtt: Button
     private lateinit var radioStatus: TextView
+    private var salaAtual = "Elétricos GV"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().userAgentValue = packageName
         ui = Ui(this)
-        val (raiz, c) = telaSimples(this, ui, "Mapa e Rádio")
 
-        // SOS
-        val sos = ui.text("SOS  ·  Toque para pedir ajuda", 14f, Cores.BRANCO).apply {
-            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
-            background = ui.fundo(Cores.alpha(Cores.CORAL, 0.25f), Cores.CORAL, 8f)
-            setOnClickListener { status.text = "SOS enviado (integração real pendente)" }
+        val raiz = ui.vbox().apply { setBackgroundColor(Cores.OBSIDIAN) }
+
+        // Topo
+        val topo = ui.hbox().apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)) }
+        topo.addView(ui.text("LUNA", 18f, Cores.BRANCO, bold = true))
+        topo.addView(ui.text(" Rádio", 16f, Cores.BRANCO_70), ui.peso(0f, ui.dp(8)))
+        topo.addView(chipSala("Elétricos GV", true), ui.peso(0f, ui.dp(6)))
+        topo.addView(chipSala("Geral GV", false), ui.peso(0f, ui.dp(6)))
+        topo.addView(chipSala("Aeroporto GV", false), ui.peso(0f, ui.dp(6)))
+        topo.addView(ui.botao("+ Criar sala", Ui.Estilo.CONTORNO) { statusMapa.text = "Criar sala: em breve" }, ui.peso(0f, ui.dp(6)))
+        topo.addView(ui.text("● AO VIVO", 13f, Cores.ESMERALDA), ui.peso(0f, ui.dp(8)))
+        raiz.addView(topo)
+
+        // Corpo em 3 colunas
+        val corpo = ui.hbox().apply { layoutParams = LinearLayout.LayoutParams(-1, 0, 1f) }
+
+        // Esquerda: rota
+        val esq = ui.vbox(ui.dp(8)).apply { layoutParams = LinearLayout.LayoutParams(ui.dp(220), LinearLayout.LayoutParams.MATCH_PARENT) }
+        esq.addView(ui.text("Rota no mapa", 15f, Cores.BRANCO, bold = true))
+        val busca = EditText(this).apply {
+            hint = "Digite um endereço..."
+            setTextColor(Cores.BRANCO)
+            setHintTextColor(Cores.BRANCO_70)
+            setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
+            background = ui.fundo(Cores.alpha(Cores.BRANCO, 0.08f), Cores.alpha(Cores.BRANCO, 0.2f), 8f)
         }
-        c.addView(sos, ui.mp(ui.dp(4)))
+        esq.addView(busca, ui.mp(ui.dp(6)))
+        val atalhos = ui.hbox()
+        listOf("Casa", "Trabalho", "Favoritos").forEach { t ->
+            atalhos.addView(ui.botao(t, Ui.Estilo.TEXTO) { busca.setText(t) }, ui.peso(1f))
+        }
+        esq.addView(atalhos)
+        esq.addView(ui.text("Recentes", 13f, Cores.BRANCO_70), ui.mp(ui.dp(8)))
+        listOf("Aeroporto de GV", "BR-381", "Shopping GV", "Eletroposto Zletric").forEach { r ->
+            esq.addView(ui.text("• $r", 13f, Cores.BRANCO).apply {
+                setOnClickListener { busca.setText(r) }
+                setPadding(0, ui.dp(4), 0, ui.dp(4))
+            })
+        }
+        esq.addView(ui.botao("Mostrar rota no mapa", Ui.Estilo.CHEIO_VIOLETA) {
+            statusMapa.text = "Rota: integração de roteamento pendente"
+        }, ui.mp(ui.dp(8)))
+        corpo.addView(esq)
 
-        status = ui.text("Buscando posição…", 13f, Cores.BRANCO_70)
-        c.addView(status, ui.mp(ui.dp(4)))
-
+        // Centro: mapa
+        val centro = ui.vbox().apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f) }
+        statusMapa = ui.text("Localizando…", 12f, Cores.BRANCO_70)
+        centro.addView(statusMapa, ui.mp(ui.dp(4)))
         map = MapView(this).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(14.0)
             controller.setCenter(GeoPoint(-18.851, -41.949))
         }
-        c.addView(map, LinearLayout.LayoutParams(-1, ui.dp(320)).apply { topMargin = ui.dp(4); bottomMargin = ui.dp(6) })
+        centro.addView(map, LinearLayout.LayoutParams(-1, 0, 1f))
+        corpo.addView(centro)
 
-        // Controles de rádio
-        radioStatus = ui.text("Rádio: desconectado", 13f, Cores.BRANCO_70)
-        c.addView(radioStatus, ui.mp(ui.dp(4)))
+        // Direita: online + chat
+        val dir = ui.vbox(ui.dp(8)).apply { layoutParams = LinearLayout.LayoutParams(ui.dp(240), LinearLayout.LayoutParams.MATCH_PARENT) }
+        dir.addView(ui.text("NO AR AGORA", 14f, Cores.BRANCO, bold = true))
+        listaOnline = ui.vbox()
+        dir.addView(ScrollView(this).apply { addView(listaOnline) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        dir.addView(ui.text("CHAT DA SALA", 14f, Cores.BRANCO, bold = true), ui.mp(ui.dp(6)))
+        chatLista = ui.vbox()
+        dir.addView(ScrollView(this).apply { addView(chatLista) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val msgInput = EditText(this).apply {
+            hint = "Mensagem para $salaAtual..."
+            setTextColor(Cores.BRANCO)
+            setHintTextColor(Cores.BRANCO_70)
+            setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
+        }
+        val enviar = ui.botao("➤", Ui.Estilo.CHEIO_VIOLETA) {
+            val t = msgInput.text.toString().trim()
+            if (t.isNotEmpty()) {
+                lifecycleScope.launch { runCatching { manager.sendText(t) } }
+                msgInput.text.clear()
+            }
+        }
+        val rowMsg = ui.hbox()
+        rowMsg.addView(msgInput, ui.peso(1f, ui.dp(4)))
+        rowMsg.addView(enviar)
+        dir.addView(rowMsg, ui.mp(ui.dp(4)))
+        corpo.addView(dir)
 
-        val row = ui.hbox()
-        row.addView(Button(this).apply { text = "Entrar no rádio"; setOnClickListener { entrarRadio() } }, ui.peso(1f, ui.dp(4)))
+        raiz.addView(corpo)
+
+        // Barra inferior
+        val barra = ui.hbox().apply { setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6)) }
+        radioStatus = ui.text("● Offline", 13f, Cores.BRANCO_70)
+        barra.addView(radioStatus, ui.peso(0f, ui.dp(8)))
         btnPtt = Button(this).apply {
-            text = "Apertar para falar"
+            text = "Segure para falar"
             isEnabled = false
             setOnTouchListener { _, e ->
                 when (e.actionMasked) {
@@ -93,7 +164,6 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
                         lifecycleScope.launch {
                             talkMutex.withLock {
                                 runCatching { manager.stopTalking() }.onSuccess { talking = false }
-                                    .onFailure { radioStatus.text = "Erro ao soltar: ${it.message}" }
                             }
                         }
                         true
@@ -102,23 +172,41 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
                 }
             }
         }
-        row.addView(btnPtt, ui.peso(1f, ui.dp(4)))
-        c.addView(row, ui.mp(ui.dp(4)))
-
-        val row2 = ui.hbox()
-        row2.addView(Button(this).apply { text = "Sair do rádio"; setOnClickListener { sairRadio() } }, ui.peso(1f, ui.dp(4)))
-        row2.addView(Button(this).apply { text = "Abrir Waze"; setOnClickListener { MediaLauncher.abrirWaze(this@MapRadioActivity) } }, ui.peso(1f, ui.dp(4)))
-        c.addView(row2, ui.mp(ui.dp(4)))
+        barra.addView(btnPtt, ui.peso(1f, ui.dp(8)))
+        barra.addView(ui.botao("Reportar", Ui.Estilo.CONTORNO) {
+            statusMapa.text = "Alerta enviado (integração real pendente)"
+        }, ui.peso(0f, ui.dp(6)))
+        barra.addView(ui.botao("Waze", Ui.Estilo.TEXTO) { MediaLauncher.abrirWaze(this) })
+        raiz.addView(barra)
 
         setContentView(raiz)
         verificarPermissao()
         observarRadio()
+        observarChat()
+        atualizarOnline(emptyList())
+    }
+
+    private fun chipSala(nome: String, ativa: Boolean): Button =
+        ui.botao(nome, if (ativa) Ui.Estilo.CHEIO_VIOLETA else Ui.Estilo.CONTORNO) {
+            salaAtual = nome
+            statusMapa.text = "Sala: $nome"
+        }
+
+    private fun atualizarOnline(nomes: List<String>) {
+        listaOnline.removeAllViews()
+        if (nomes.isEmpty()) {
+            listaOnline.addView(ui.text("Nenhum motorista na sala.\nEntre para aparecer.", 12f, Cores.BRANCO_70))
+            return
+        }
+        nomes.forEach { n ->
+            listaOnline.addView(ui.text("● $n", 13f, Cores.BRANCO), ui.mp(ui.dp(3)))
+        }
     }
 
     private fun verificarPermissao() {
         val ok = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!ok) {
-            status.text = "Permissão de localização necessária."
+            statusMapa.text = "Permissão de localização necessária."
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 3001)
             return
         }
@@ -127,22 +215,22 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
 
     private fun iniciarGps() {
         val gps = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false)
-        if (!gps) { status.text = "GPS desligado."; return }
-        status.text = "Localizando…"
+        if (!gps) { statusMapa.text = "GPS desligado."; return }
+        statusMapa.text = "Localizando…"
         runCatching { lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 10f, this) }
     }
 
-    private fun atualizar(loc: Location) {
+    private fun atualizarPos(loc: Location) {
         val p = GeoPoint(loc.latitude, loc.longitude)
         if (myMarker == null) myMarker = Marker(map).also { map.overlays.add(it) }
         myMarker?.position = p
         myMarker?.title = "Você"
         map.controller.animateTo(p)
         map.invalidate()
-        status.text = "Você: ${"%.4f".format(loc.latitude)}, ${"%.4f".format(loc.longitude)}"
+        statusMapa.text = "Você: ${"%.4f".format(loc.latitude)}, ${"%.4f".format(loc.longitude)}"
     }
 
-    private fun entrarRadio() {
+    private fun entrarSala() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3002)
             radioStatus.text = "Permissão de microfone necessária."
@@ -150,18 +238,8 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
         }
         lifecycleScope.launch {
             runCatching {
-                manager.join("rota-gv", "motorista-${System.currentTimeMillis() % 10000}", HttpTokenProvider())
-            }.onFailure { radioStatus.text = "Erro ao entrar: ${it.message}" }
-        }
-    }
-
-    private fun sairRadio() {
-        lifecycleScope.launch {
-            talkMutex.withLock {
-                if (talking) runCatching { manager.stopTalking() }
-                talking = false
-            }
-            runCatching { manager.leave() }
+                manager.join(salaAtual.lowercase().replace(" ", "-"), "motorista", HttpTokenProvider())
+            }.onFailure { radioStatus.text = "Erro: ${it.message}" }
         }
     }
 
@@ -170,28 +248,37 @@ class MapRadioActivity : AppCompatActivity(), LocationListener {
             manager.state.collect { s ->
                 when (s) {
                     is VoiceRoomManager.State.Disconnected -> {
-                        radioStatus.text = "Rádio: desconectado"
+                        radioStatus.text = "● Offline"
                         btnPtt.isEnabled = false
                     }
-                    is VoiceRoomManager.State.Connecting -> radioStatus.text = "Rádio: conectando…"
+                    is VoiceRoomManager.State.Connecting -> radioStatus.text = "Conectando…"
                     is VoiceRoomManager.State.Connected -> {
-                        radioStatus.text = "Rádio: conectado"
+                        radioStatus.text = "● Online"
                         btnPtt.isEnabled = true
                     }
-                    is VoiceRoomManager.State.Error -> radioStatus.text = "Rádio: ${s.message}"
+                    is VoiceRoomManager.State.Error -> radioStatus.text = s.message
                 }
             }
         }
     }
 
-    override fun onLocationChanged(location: Location) = atualizar(location)
+    private fun observarChat() {
+        lifecycleScope.launch {
+            manager.messages.collect { msg ->
+                val linha = ui.text("${msg.from ?: "Você"}: ${msg.text}", 12f, Cores.BRANCO)
+                chatLista.addView(linha, ui.mp(ui.dp(2)))
+            }
+        }
+    }
+
+    override fun onLocationChanged(location: Location) = atualizarPos(location)
     override fun onRequestPermissionsResult(c: Int, p: Array<out String>, r: IntArray) {
         super.onRequestPermissionsResult(c, p, r)
         if (c == 3001 && r.any { it == PackageManager.PERMISSION_GRANTED }) iniciarGps()
+        if (c == 3002 && r.any { it == PackageManager.PERMISSION_GRANTED }) entrarSala()
     }
     override fun onResume() { super.onResume(); map.onResume() }
     override fun onPause() {
-        lifecycleScope.launch { sairRadio() }
         runCatching { lm.removeUpdates(this) }
         map.onPause()
         super.onPause()
