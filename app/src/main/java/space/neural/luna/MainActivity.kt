@@ -458,7 +458,11 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val btnRadio = ui.botao("Rádio", Ui.Estilo.CHEIO_VIOLETA) {
             startActivity(android.content.Intent(this, space.neural.luna.pages.MapRadioActivity::class.java))
         }
-        barraRadio.addView(btnRadio, ui.mp())
+        val btnParceiros = ui.botao("Parceiros", Ui.Estilo.CONTORNO) {
+            startActivity(android.content.Intent(this, space.neural.luna.pages.ParceirosActivity::class.java))
+        }
+        barraRadio.addView(btnRadio, ui.peso(1f, ui.dp(4)))
+        barraRadio.addView(btnParceiros, ui.peso(1f, ui.dp(4)))
         raiz.addView(barraRadio)
 
         setContentView(tela)

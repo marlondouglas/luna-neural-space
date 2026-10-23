@@ -95,6 +95,7 @@
             android:exported="false"
             android:label="Configurações" />
 
+        <activity android:name=".pages.ParceirosActivity" android:exported="false" android:label="Parceiros" />
         <activity android:name=".pages.MapRadioActivity" android:exported="false" android:label="Mapa e Rádio" />
         <activity android:name=".pages.MapActivity" android:exported="false" android:label="Mapa" />
         <activity android:name=".pages.RadioActivity" android:exported="false" android:label="Rádio dos Motoristas" />
