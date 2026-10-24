@@ -1,5 +1,24 @@
 # Servidor de tokens LiveKit (Cloudflare Worker)
 
+## Continuidade com o servidor existente — 24/10/2026
+
+O Worker, o projeto LiveKit e o Firebase configurados localmente correspondem
+aos endereços recuperados da versão 0.1.14. Não substituir o serviço nem criar
+outra conta/namespace para corrigir a conexão. O roteiro histórico de criação
+abaixo não deve ser repetido em uma instalação já existente.
+
+O contrato local atual exige Firebase ID token em `Authorization: Bearer ...`
+para `/token`. A identidade vem do token verificado; `identity` na URL não
+permite assumir outro usuário. Tokens de sala continuam emitidos somente no
+backend. Nenhuma chave secreta deve ser transferida ao APK.
+
+`GET /health` e `HEAD /health` (também `/healthz`) foram preparados no código:
+retornam somente prontidão e capacidades booleanas, sem URLs, credenciais,
+email ou token de participante. A prontidão não comprova que a chave/segredo
+LiveKit pertençam ao mesmo projeto ou sejam aceitos pela nuvem. O servidor de
+produção consultado ainda respondeu 405 a HEAD: a mudança não foi publicada
+por este trabalho. Detalhes e sequência de validação em `EXISTING_SERVER_AUDIT.md`.
+
 Gera o token que o app Rota GV usa para entrar na sala de voz.
 Roda no plano gratuito do Cloudflare Workers (100 mil requisições por dia).
 
