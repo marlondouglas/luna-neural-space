@@ -12,39 +12,29 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
-import space.neural.luna.BuildConfig
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.security.MessageDigest
-import java.util.Locale
-import kotlin.coroutines.resume
 
-/**
- * A voz da Luna em todo o app: pede o áudio ao Worker (POST /tts, Gemini TTS voz Kore; o Worker cai no
- * Workers AI se o Gemini falhar), guarda em cache no aparelho, calcula o lip sync (texto + áudio) e toca
- * com AudioTrack, avisando o [LunaMotor] da posição para a boca acompanhar. Sem internet: a voz do
- * Android é gravada em arquivo (synthesizeToFile) e passa pelo mesmo caminho, então a boca mexe igual.
+/** Saída única da Luna e da navegação. Só usa motor local explicitamente autorizado.
+ * O caminho remoto legado foi desativado após auditoria por depender de Google/fallback.
+ * Ausência de motor não aciona Android TTS/Google nem reutiliza cache Kore antigo.
  */
 object LunaVoz {
+    enum class PlaybackState { IDLE, PREPARING, PLAYING, UNAVAILABLE }
+    private val playbackState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackState.IDLE)
+    val playback: kotlinx.coroutines.flow.StateFlow<PlaybackState> = playbackState
+    @Volatile var firstAudioDelayMs: Long? = null; private set
+    private var synthesisStartedAt = 0L
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var job: Job? = null
     private var track: AudioTrack? = null
-    private var tts: TextToSpeech? = null
-    private var ttsPronto = false
     private var foco: AudioFocusRequest? = null
 
     /**
@@ -58,78 +48,149 @@ object LunaVoz {
     /** Para testes: substitui a busca do áudio. */
     var fonteTeste: (suspend (String) -> ByteArray?)? = null
 
-    fun endpoint(): String {
-        val chat = BuildConfig.LUNA_CHAT_ENDPOINT
-        return if (chat.startsWith("https://")) chat.trimEnd('/').removeSuffix("/chat") + "/tts" else ""
+    private val queue = space.neural.luna.voz.SpeechQueuePolicy()
+    private data class Request(val context: Context, val callbacks: space.neural.luna.voz.SpeechRequestCallbacks)
+    private val requests = mutableMapOf<Long, Request>()
+    private val afterInterruption = mutableListOf<() -> Unit>()
+    private var sequence = 0L
+    @Volatile private var cancellationGeneration = 0L
+    private val handler = Handler(Looper.getMainLooper())
+    private var audioManager: AudioManager? = null
+    @Volatile private var playbackVolume = 1f
+    val estado get() = space.neural.luna.voz.LocalVoiceRuntime.state
+
+    /** Compatibility API for existing assistant callers; no silent provider fallback. */
+    fun falar(ctx: Context, texto: String, fixa: Boolean = false, aoTerminar: (() -> Unit)? = null) {
+        falarComPrioridade(ctx, texto, space.neural.luna.voz.SpeechPriority.ASSISTANT, aoTerminar)
     }
 
-    /** Fala o [texto] (para qualquer fala anterior). [fixa] = frase fixa (cache longo no servidor). */
-    fun falar(ctx: Context, texto: String, fixa: Boolean = false, aoTerminar: (() -> Unit)? = null) {
+    fun falarComPrioridade(ctx: Context, texto: String, priority: space.neural.luna.voz.SpeechPriority,
+        aoTerminar: (() -> Unit)? = null): Boolean {
+        return enqueue(ctx, texto, priority, null, aoTerminar)
+    }
+
+    /** Callbacks belong only to this request; start is emitted after its first rendered frame. */
+    fun falarSincronizado(ctx: Context, texto: String, aoIniciar: (() -> Unit)?, aoTerminar: (() -> Unit)?): Boolean =
+        enqueue(ctx, texto, space.neural.luna.voz.SpeechPriority.ASSISTANT, aoIniciar, aoTerminar)
+
+    private fun enqueue(ctx: Context, texto: String, priority: space.neural.luna.voz.SpeechPriority,
+        aoIniciar: (() -> Unit)?, aoTerminar: (() -> Unit)?): Boolean {
         val app = ctx.applicationContext
-        val limpo = texto.replace(Regex("[\\p{So}\\p{Cn}]"), "").replace(Regex("[*_#`]"), "").trim()
-        if (limpo.isEmpty()) return
-        parar()
+        val owner = space.neural.luna.conta.TrocaConta.dono(app)
+        val callbacks = space.neural.luna.voz.SpeechRequestCallbacks(
+            { space.neural.luna.conta.TrocaConta.dono(app) == owner }, aoIniciar, aoTerminar)
+        val clean = texto.replace(Regex("[\\p{So}\\p{Cn}]"), "").replace(Regex("[*_#\u0060]"), "").trim()
+        if (clean.isBlank()) { handler.post { callbacks.complete() }; return false }
+        space.neural.luna.voz.SupertonicVoice.restore(ctx.applicationContext)
+        val generation = cancellationGeneration
+        handler.post {
+            if (generation != cancellationGeneration || space.neural.luna.conta.TrocaConta.dono(app) != owner) { callbacks.complete(); return@post }
+            if (queue.radioBusy && priority == space.neural.luna.voz.SpeechPriority.ASSISTANT) { callbacks.complete(); return@post }
+            if (queue.shouldPreempt(priority)) {
+                val previous = queue.active?.id
+                stopPlayback(); queue.finish(); previous?.let { requests.remove(it)?.callbacks?.complete() }
+            }
+            val item = space.neural.luna.voz.SpeechQueuePolicy.Item(++sequence, priority, clean)
+            if (queue.offer(item)) requests[item.id] = Request(app, callbacks) else callbacks.complete()
+            completeRemovedRequests()
+            drain()
+        }
+        return true
+    }
+
+    private fun drain() {
+        val item = queue.next() ?: run {
+            if (!queue.radioBusy && queue.active == null) {
+                val callbacks = afterInterruption.toList(); afterInterruption.clear()
+                callbacks.forEach { it() }
+            }
+            return
+        }
+        val request = requests[item.id] ?: run { queue.finish(); drain(); return }
+        if (!request.callbacks.ownerStillValid()) { completed(item.id); return }
+        synthesisStartedAt = android.os.SystemClock.elapsedRealtime()
+        firstAudioDelayMs = null
+        playbackState.value = PlaybackState.PREPARING
         job = escopo.launch {
-            val pcm = withContext(Dispatchers.IO) { obterAudio(app, limpo, fixa) }
-            if (pcm == null) { falarSistema(app, limpo, aoTerminar); return@launch }
-            val tr = withContext(Dispatchers.Default) { LipSync.analisar(limpo, pcm.amostras, pcm.taxa) }
-            tocar(app, pcm, tr, aoTerminar)
+            try {
+                if (!space.neural.luna.voz.LocalVoiceRuntime.available && fonteTeste == null) {
+                    val context = request.context.applicationContext
+                    check(space.neural.luna.voz.SupertonicVoice.bundled(context)) { "O pacote de voz não está incluído nesta versão." }
+                    val target = space.neural.luna.voz.SupertonicVoice.modelDirectory(context)
+                    val ready = space.neural.luna.voz.SupertonicModelFiles.required.all { (name, entry) ->
+                        space.neural.luna.voz.SupertonicModelFiles.verified(File(target, name), entry)
+                    }
+                    if (!ready) space.neural.luna.voz.SupertonicVoice.installBundled(context)
+                    space.neural.luna.voz.SupertonicVoice.select(context, true)
+                    check(space.neural.luna.voz.LocalVoiceRuntime.available) { "Não foi possível ativar a voz local neste aparelho." }
+                }
+                val audio = withContext(Dispatchers.Default) { space.neural.luna.voz.LocalVoiceRuntime.synthesize(item.text) }
+                val pcm = audio?.let { Pcm(it.samples, it.sampleRate) } ?: fonteTeste?.invoke(item.text)?.let { bytes ->
+                    withContext(Dispatchers.IO) {
+                        val f = File.createTempFile("luna-test-", ".audio", request.context.cacheDir)
+                        try { f.writeBytes(bytes); decodificar(f) } finally { f.delete() }
+                    }
+                }
+                if (pcm == null) {
+                    playbackState.value = PlaybackState.UNAVAILABLE
+                    android.widget.Toast.makeText(request.context, estado, android.widget.Toast.LENGTH_LONG).show()
+                    completed(item.id); return@launch
+                }
+                val lip = withContext(Dispatchers.Default) { LipSync.analisar(item.text, pcm.amostras, pcm.taxa) }
+                if (!request.callbacks.ownerStillValid()) { completed(item.id); return@launch }
+                tocar(request.context, pcm, lip, { if (queue.active?.id == item.id) request.callbacks.firstFrame() }) { completed(item.id) }
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) {
+                playbackState.value = PlaybackState.UNAVAILABLE
+                space.neural.luna.voz.LocalVoiceRuntime.reportUnavailable("Não foi possível reproduzir a voz local. Consulte o texto na tela.")
+                completed(item.id)
+            }
         }
     }
-
-    fun parar() {
+    private fun completed(id: Long) {
+        if (queue.active?.id != id) return
+        queue.finish(); requests.remove(id)?.callbacks?.complete(); drain()
+        if (queue.active == null && playbackState.value != PlaybackState.UNAVAILABLE) playbackState.value = PlaybackState.IDLE
+    }
+    /** Called by radio TX and RX. Speech is deferred until both release the audio path. */
+    fun radioOcupado(busy: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) { handler.post { radioOcupado(busy) }; return }
+        queue.radioBusy = busy
+        if (busy) {
+            val active = queue.active
+            stopPlayback(); queue.interruptForRadio()
+            if (active != null) {
+                if (active.priority != space.neural.luna.voz.SpeechPriority.ASSISTANT) queue.offer(active)
+                else requests.remove(active.id)?.callbacks?.complete()
+            }
+            completeRemovedRequests()
+        } else drain()
+    }
+    fun volume(value: Float) { playbackVolume = value.coerceIn(0f, 1f); handler.post { track?.setVolume(playbackVolume) } }
+    private fun completeRemovedRequests() {
+        val removed = requests.keys.filter { it !in queue.retainedIds }
+        removed.forEach { requests.remove(it)?.callbacks?.complete() }
+    }
+    private fun stopPlayback() {
         job?.cancel(); job = null
         track?.let { runCatching { it.stop() }; it.release() }; track = null
-        tts?.stop()
-        LunaMotor.calar()
+        if (Build.VERSION.SDK_INT >= 26) foco?.let { audioManager?.abandonAudioFocusRequest(it) }
+        foco = null; LunaMotor.calar()
+        playbackState.value = PlaybackState.IDLE
+    }
+    fun cancelarNavegacao() { handler.post {
+        if (queue.cancel(space.neural.luna.voz.SpeechPriority.MANEUVER)) stopPlayback()
+        requests.keys.retainAll(queue.retainedIds); drain()
+    } }
+    fun parar() {
+        cancellationGeneration++
+        if (Looper.myLooper() != Looper.getMainLooper()) { handler.post { parar() }; return }
+        stopPlayback(); queue.clear(); val cancelled = requests.values.toList(); requests.clear(); afterInterruption.clear(); cancelled.forEach { it.callbacks.complete() }
     }
 
     class Pcm(val amostras: FloatArray, val taxa: Int)
 
-    // ---------------- áudio ----------------
-    private suspend fun obterAudio(ctx: Context, texto: String, fixa: Boolean): Pcm? {
-        val dir = File(ctx.cacheDir, "luna_voz").apply { mkdirs() }
-        val hash = MessageDigest.getInstance("SHA-1").digest("kore|$texto".toByteArray()).joinToString("") { "%02x".format(it) }
-        val f = File(dir, "$hash.audio")
-        if (f.exists() && f.length() > 100) { f.setLastModified(System.currentTimeMillis()); decodificar(f)?.let { return it } }
-        val bytes = fonteTeste?.invoke(texto) ?: baixar(texto, fixa) ?: return null
-        f.writeBytes(bytes)
-        limparCache(dir)
-        return decodificar(f)
-    }
-
-    /** Servidor sem voz (limite gratuito do Gemini TTS por minuto): até quando usar direto a voz do Android. */
-    @Volatile private var semServidorAte = 0L
-
-    private fun baixar(texto: String, fixa: Boolean): ByteArray? {
-        val ep = endpoint(); if (ep.isEmpty()) return null
-        if (System.currentTimeMillis() < semServidorAte) return null
-        return runCatching {
-            val c = (URL(ep).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"; doOutput = true; connectTimeout = 8_000; readTimeout = 30_000
-                setRequestProperty("content-type", "application/json; charset=utf-8")
-                setRequestProperty("User-Agent", "LunaNeuralSpace-Android")
-                space.neural.luna.licenca.Licenca.cabecalhos(this)
-            }
-            try {
-                c.outputStream.use { it.write(JSONObject().put("text", texto.take(600)).put("cache", fixa).toString().toByteArray()) }
-                val code = c.responseCode
-                space.neural.luna.licenca.Licenca.respostaServidor(code)
-                if (code == 429 || code == 503) {
-                    val seg = c.getHeaderField("retry-after")?.toLongOrNull()?.coerceIn(5, 120) ?: 20
-                    semServidorAte = System.currentTimeMillis() + seg * 1000
-                }
-                if (code !in 200..299) null else c.inputStream.use { it.readBytes() }.takeIf { it.size > 100 }
-            } finally { c.disconnect() }
-        }.getOrNull()
-    }
-
-    private fun limparCache(dir: File) {
-        val fs = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        var tot = 0L
-        fs.forEachIndexed { i, f -> tot += f.length(); if (i >= 60 || tot > 12L * 1024 * 1024) f.delete() }
-    }
-
+    // PCM decoding is shared by the authorized local engine and isolated tests.
     /** WAV PCM 16 bits direto; outros formatos (MP3 do Workers AI) via MediaCodec. Mistura para mono. */
     fun decodificar(f: File): Pcm? = runCatching {
         val b = f.readBytes()
@@ -188,12 +249,15 @@ object LunaVoz {
     }
 
     // ---------------- reprodução ----------------
-    private fun tocar(ctx: Context, pcm: Pcm, tr: LipSync.Track, aoTerminar: (() -> Unit)?) {
+    private fun tocar(ctx: Context, pcm: Pcm, tr: LipSync.Track, aoIniciar: () -> Unit, aoTerminar: (() -> Unit)?) {
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = am
         val attrs = AudioAttributes.Builder().setUsage(if (comunicacao) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
         if (Build.VERSION.SDK_INT >= 26) {
-            foco = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attrs).build().also { am.requestAudioFocus(it) }
+            foco = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attrs).setOnAudioFocusChangeListener { change ->
+                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) parar()
+            }.build().also { if (am.requestAudioFocus(it) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) throw IllegalStateException("Áudio ocupado") }
         }
         val s16 = ShortArray(pcm.amostras.size) { (pcm.amostras[it].coerceIn(-1f, 1f) * 32767).toInt().toShort() }
         val t = AudioTrack.Builder().setAudioAttributes(attrs)
@@ -206,9 +270,24 @@ object LunaVoz {
             override fun onMarkerReached(a: AudioTrack) { fim(ctx, a, aoTerminar) }
             override fun onPeriodicNotification(a: AudioTrack) {}
         })
+        t.setVolume(playbackVolume)
         track = t
-        LunaMotor.falar(tr) { runCatching { t.playbackHeadPosition.toDouble() / pcm.taxa }.getOrDefault(-1.0) }
         t.play()
+        // PLAYING and mouth movement begin only after Android reports rendered audio frames.
+        val firstFrame = object : Runnable {
+            override fun run() {
+                if (track !== t) return
+                val frames = runCatching { t.playbackHeadPosition }.getOrDefault(0)
+                if (frames > 0) {
+                    firstAudioDelayMs = android.os.SystemClock.elapsedRealtime() - synthesisStartedAt
+                    playbackState.value = PlaybackState.PLAYING
+                    aoIniciar()
+                    if (track !== t) return
+                    LunaMotor.falar(tr) { runCatching { t.playbackHeadPosition.toDouble() / pcm.taxa }.getOrDefault(-1.0) }
+                } else handler.postDelayed(this, 16)
+            }
+        }
+        handler.post(firstFrame)
         // segurança: se o marcador não chegar, encerra pelo tempo
         Handler(Looper.getMainLooper()).postDelayed({ if (track === t) fim(ctx, t, aoTerminar) }, (total * 1000L / pcm.taxa) + 800)
     }
@@ -218,52 +297,9 @@ object LunaVoz {
         track = null
         runCatching { a.stop() }; a.release()
         LunaMotor.calar()
+        playbackState.value = PlaybackState.IDLE
         if (Build.VERSION.SDK_INT >= 26) foco?.let { (ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocusRequest(it) }
         aoTerminar?.invoke()
     }
 
-    // ---------------- reserva: voz do Android ----------------
-    private suspend fun prepararSistema(ctx: Context): TextToSpeech? {
-        tts?.let { if (ttsPronto) return it }
-        return withTimeoutOrNull(5_000) {
-            suspendCancellableCoroutine { cont ->
-                var ref: TextToSpeech? = null
-                ref = TextToSpeech(ctx) { st ->
-                    ttsPronto = st == TextToSpeech.SUCCESS
-                    if (ttsPronto) ref?.language = Locale.forLanguageTag("pt-BR")
-                    if (cont.isActive) cont.resume(if (ttsPronto) ref else null)
-                }
-                tts = ref
-            }
-        }
-    }
-
-    private suspend fun falarSistema(ctx: Context, texto: String, aoTerminar: (() -> Unit)?) {
-        val t = prepararSistema(ctx) ?: return
-        val f = File(ctx.cacheDir, "luna_voz_sistema.wav")
-        val ok = withTimeoutOrNull(15_000) {
-            suspendCancellableCoroutine<Boolean> { cont ->
-                t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) {}
-                    override fun onDone(id: String?) { if (cont.isActive) cont.resume(true) }
-                    @Deprecated("") override fun onError(id: String?) { if (cont.isActive) cont.resume(false) }
-                })
-                if (t.synthesizeToFile(texto, null, f, "luna-arq") != TextToSpeech.SUCCESS && cont.isActive) cont.resume(false)
-            }
-        } ?: false
-        val pcm = if (ok) withContext(Dispatchers.IO) { decodificar(f) } else null
-        if (pcm != null && pcm.amostras.size > 1000) {
-            val tr = withContext(Dispatchers.Default) { LipSync.analisar(texto, pcm.amostras, pcm.taxa) }
-            tocar(ctx, pcm, tr, aoTerminar)
-        } else {
-            // último recurso (sem boca sincronizada); o fim só é avisado quando a fala acaba de verdade,
-            // para a conversa contínua não abrir o microfone com ela ainda falando
-            t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) {}
-                override fun onDone(id: String?) { Handler(Looper.getMainLooper()).post { aoTerminar?.invoke() } }
-                @Deprecated("") override fun onError(id: String?) { Handler(Looper.getMainLooper()).post { aoTerminar?.invoke() } }
-            })
-            t.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "luna")
-        }
-    }
 }

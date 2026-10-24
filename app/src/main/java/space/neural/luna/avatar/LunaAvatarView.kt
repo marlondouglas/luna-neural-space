@@ -25,7 +25,7 @@ class LunaDesenho(private val ctx: Context, var focoX: Float = 0.5f, var focoY: 
     private var verts = FloatArray(0)
     private val clip = Path()
 
-    fun desenhar(c: Canvas, cx: Float, cy: Float, raio: Float): Boolean {
+    fun desenhar(c: Canvas, cx: Float, cy: Float, raio: Float, retrato: Boolean = false): Boolean {
         val r = LunaMotor.rigDe(ctx) ?: return false
         val bmp = LunaMotor.quadro ?: return false
         val g = r.grid; val n = r.size.toFloat(); val s = r.s
@@ -46,15 +46,18 @@ class LunaDesenho(private val ctx: Context, var focoX: Float = 0.5f, var focoY: 
             verts[k++] = cx + (x - fx) * esc; verts[k++] = cy + (y - fy) * esc
         }
         c.save()
-        clip.reset(); clip.addCircle(cx, cy, raio, Path.Direction.CW); c.clipPath(clip)
+        clip.reset()
+        if (retrato) clip.addRoundRect(cx - raio, cy - raio, cx + raio, cy + raio, raio * .12f, raio * .12f, Path.Direction.CW)
+        else clip.addCircle(cx, cy, raio, Path.Direction.CW)
+        c.clipPath(clip)
         c.drawBitmapMesh(bmp, g, g, verts, 0, null, 0, paint)
         c.restore()
         return true
     }
 }
 
-/** Luna animada num círculo com aro neon (card "Fale com a Luna…" e topo da conversa). */
-class LunaAvatarView(ctx: Context, focoY: Float = 0.47f, zoom: Float = 0.78f) : View(ctx), LunaMotor.Alvo {
+/** Animated Luna, circular in compact cards or framed as a portrait in the conversation. */
+class LunaAvatarView(ctx: Context, focoY: Float = 0.47f, zoom: Float = 0.78f, private val retrato: Boolean = false) : View(ctx), LunaMotor.Alvo {
     private val desenho = LunaDesenho(ctx, 0.5f, focoY, zoom)
     private val aro = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -91,6 +94,15 @@ class LunaAvatarView(ctx: Context, focoY: Float = 0.47f, zoom: Float = 0.78f) : 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat(); val r = min(w, h) / 2f
         val cx = w / 2; val cy = h / 2
+        if (retrato) {
+            val side = r * .94f
+            desenho.desenhar(c, cx, cy, side, retrato = true)
+            aro.shader = null
+            aro.color = if (ouvindo) Cores.CIANO else if (ativa || LunaMotor.falando) Cores.MAGENTA else Cores.VIOLETA
+            aro.strokeWidth = maxOf(2f, resources.displayMetrics.density * 1.5f)
+            c.drawRoundRect(cx - side, cy - side, cx + side, cy + side, side * .12f, side * .12f, aro)
+            return
+        }
         c.drawCircle(cx, cy, r, halo)
         val larg = maxOf(2f, r * (if (ativa || LunaMotor.falando) 0.075f else 0.05f))
         val ri = r * 0.86f

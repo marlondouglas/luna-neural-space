@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": false, "outDir": "build-test", "types": [], "lib": ["ES2022", "DOM"] },
-  "include": ["src/license.ts"]
+  "include": ["src/license.ts", "src/backendContract.ts"]
 }

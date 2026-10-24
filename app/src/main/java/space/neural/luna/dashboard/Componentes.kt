@@ -48,35 +48,26 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito:
     }
 
     init {
-        val marca = ui.vbox().apply { gravity = Gravity.CENTER }
-        // Marca do app: "Rota GV" (a assistente continua sendo a Luna). No telefone em pé ela vai numa
-        // linha pequena acima da saudação, para não cortar o nome do motorista; encolhe sozinha se faltar espaço.
-        val noTopo = estreito && !compacto
-        val marcaTx = ui.ajustavel("ROTA GV", if (noTopo) 11f else 14f, 9f, Cores.CIANO).apply {
-            letterSpacing = 0.18f; maxLines = 1; contentDescription = "Rota GV"
+        view.addView(ui.botaoIcone(R.drawable.ic_more, "Menu do ROTA GV", Cores.BRANCO) { a.menu(it) })
+        val marca = ui.vbox().apply {
+            addView(ui.ajustavel("ROTA GV", if (estreito) 22f else 30f, 16f, Cores.CIANO).apply { letterSpacing = 0.06f })
+            addView(ui.ajustavel("SEU CAMINHO MAIS INTELIGENTE", 9f, 7f, Cores.BRANCO, bold = false))
         }
-        if (!noTopo) {
-            marca.addView(marcaTx)
-            view.addView(marca)
-            view.addView(View(ui.ctx).apply { setBackgroundColor(Cores.alpha(Cores.BRANCO, 0.15f)) },
-                LinearLayout.LayoutParams(ui.dp(1), ui.dp(32)).apply { leftMargin = ui.dp(12) })
-        }
+        view.addView(marca, ui.peso(if (estreito) 1.4f else 1f, ui.dp(6)))
+        ui.truncar(data, 1)
+        saudacao.visibility = View.GONE
+        if (!estreito) view.addView(data, ui.peso(1f, ui.dp(12)))
         if (estreito) syncTx.visibility = View.GONE
-        ui.truncar(saudacao, 1); ui.truncar(data, 1)
-        val textos = if (compacto) ui.hbox() else ui.vbox()
-        if (noTopo) textos.addView(marcaTx)
-        textos.addView(saudacao)
-        textos.addView(data, if (compacto) ui.wc(ui.dp(10)) else ui.mp())
-        view.addView(textos, ui.peso(1f, if (estreito) 0 else ui.dp(12)))
+        sync.background = ui.fundo(Cores.alpha(Cores.VIOLETA, 0.1f), Cores.alpha(Cores.VIOLETA, 0.6f), 24f)
         view.addView(aoVivo, ui.wc(ui.dp(4)))
-        view.addView(sync)
-        view.addView(ui.botaoIcone(R.drawable.ic_settings, "Configurações", Cores.BRANCO) { a.menu(it) })
+        view.addView(sync, ui.wc(ui.dp(4)))
+        view.addView(ui.botaoIcone(R.drawable.ic_settings, "Configurações e perfil", Cores.BRANCO) { a.menu(it) })
     }
 
     fun bind(p: Painel, online: Boolean, nuvem: Boolean) {
         val h = LocalTime.now().hour
         saudacao.text = (if (h < 12) "Bom dia" else if (h < 18) "Boa tarde" else "Boa noite") + space.neural.luna.conta.Conta.vocativo()
-        data.text = Fmt.dataCurta(p.hoje)
+        data.text = Fmt.dataCurta(p.hoje) + "   " + LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
         val vivo = p.turno?.estado == EstadoTurno.ATIVO
         aoVivo.visibility = if (vivo) View.VISIBLE else View.GONE
         if (vivo && pulso == null && Anima.ligadas()) {
@@ -98,14 +89,10 @@ class Cabecalho(private val ui: Ui, compacto: Boolean, a: AcoesPainel, estreito:
 }
 
 // ---------------- Turno (componente 4) com a orb 3D da Luna ----------------
-class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: AcoesPainel, orbDp: Int = 200) {
+class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: AcoesPainel, orbDp: Int = 200, mostrarRegistroRapido: Boolean = true, private val compacto: Boolean = false) {
     val view = ui.card(destaque = true)
-    private val orb = LunaOrbView(ui.ctx).apply {
-        contentDescription = "Luna. Toque para conversar"
-        setOnClickListener { a.conversar() }
-    }
     private val selo = ui.selo("", Cores.CIANO).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
-    private val contador = TextoAjustavel(ui.ctx, 44f, 22f).apply {
+    private val contador = TextoAjustavel(ui.ctx, if (compacto) 36f else 44f, 22f).apply {
         text = "00:00:00"; setTextColor(Cores.BRANCO_40); gravity = Gravity.CENTER
         typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
         setShadowLayer(18f, 0f, 0f, Cores.alpha(Cores.CIANO, 0.7f))
@@ -123,34 +110,38 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
     private var liqDia = 0L
 
     init {
+        if (compacto) view.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12))
         val topo = ui.hbox()
         topo.addView(ui.icone(R.drawable.ic_timer, Cores.CIANO, 18))
         topo.addView(titulo, ui.peso(1f, ui.dp(8)))
         topo.addView(selo)
         view.addView(topo, ui.mp())
         val legenda = ui.text("TEMPO DE TRABALHO", 11f, Cores.BRANCO_70).apply { gravity = Gravity.CENTER; letterSpacing = 0.15f }
-        if (largo) {
+        if (compacto) {
             val linha = ui.hbox()
-            linha.addView(orb, LinearLayout.LayoutParams(ui.dp(orbDp), ui.dp(orbDp)))
+            linha.addView(ui.vbox().apply { addView(legenda); addView(contador); addView(parado) }, ui.peso(1f, ui.dp(8)))
+            view.addView(linha, ui.mp(ui.dp(4)))
+            view.addView(botoes, ui.mp(ui.dp(6)))
+        } else if (largo) {
+            val linha = ui.hbox()
             val dir = ui.vbox().apply { gravity = Gravity.CENTER }
             dir.addView(legenda, ui.mp()); dir.addView(contador, ui.mp()); dir.addView(parado, ui.mp())
             dir.addView(botoes, ui.mp(ui.dp(12)))
             linha.addView(dir, ui.peso(1f, ui.dp(12)))
             view.addView(linha, ui.mp(ui.dp(4)))
         } else {
-            view.addView(orb, LinearLayout.LayoutParams(-1, ui.dp(orbDp)))
             view.addView(legenda, ui.mp()); view.addView(contador, ui.mp()); view.addView(parado, ui.mp())
             view.addView(botoes, ui.mp(ui.dp(12)))
         }
         // v0.1.5: ações que eram do card "Resumo do dia" (removido) ficam aqui no turno
-        view.addView(ui.divisor())
+        if (!compacto) view.addView(ui.divisor())
         val acoes = ui.hbox()
         acoes.addView(ui.comIcone(ui.botao("Ganho", Ui.Estilo.CHEIO_ESMERALDA) { a.lancarGanho(null) }.apply { contentDescription = "Lançar ganho" }, R.drawable.ic_add), ui.peso(1f))
         acoes.addView(ui.comIcone(ui.botao("Gasto") { a.lancarGasto(null) }.apply { contentDescription = "Lançar gasto" }, R.drawable.ic_add), ui.peso(1f, ui.dp(8)))
         acoes.addView(ui.comIcone(ui.botao("Recarga") { a.lancarGasto(space.neural.luna.data.local.CategoriaGasto.ENERGIA) }.apply { contentDescription = "Lançar recarga" }, R.drawable.ic_bolt), ui.peso(1f, ui.dp(8)))
-        view.addView(acoes, ui.mp())
+        if (mostrarRegistroRapido) view.addView(acoes, ui.mp())
         info.setOnClickListener { a.detalheDia() }
-        view.addView(info, ui.mp(ui.dp(8)))
+        if (!compacto) view.addView(info, ui.mp(ui.dp(8)))
         view.addView(porHora, ui.mp(ui.dp(2)))
         view.addView(faixa, ui.mp())
     }
@@ -189,7 +180,6 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
         val t = sit.turno
         turno = t?.takeIf { sit.fase != MaquinaTurno.Fase.CONCLUIDO && sit.fase != MaquinaTurno.Fase.PRONTO || it.estado == EstadoTurno.PRONTO }
         fase = sit.fase
-        orb.ativa = sit.fase == MaquinaTurno.Fase.ATIVO
         val chave = "${sit.fase}-${sit.numero}-${sit.anterior?.id}"
         if (chave != estadoDesenhado) {
             estadoDesenhado = chave
@@ -244,6 +234,22 @@ class TurnoCard(private val ui: Ui, private val largo: Boolean, private val a: A
             }
             linhas.filter { it.childCount == 0 }.forEach { botoes.removeView(it) }
             if (botoes.childCount > 0) (botoes.getChildAt(0).layoutParams as LinearLayout.LayoutParams).topMargin = 0
+            if (compacto) {
+                val actions = linhas.flatMap { line -> (0 until line.childCount).map { line.getChildAt(it) as android.widget.Button } }
+                botoes.removeAllViews(); botoes.orientation = LinearLayout.HORIZONTAL
+                actions.firstOrNull()?.let { first ->
+                    (first.parent as? android.view.ViewGroup)?.removeView(first)
+                    first.textSize = 14f; first.minHeight = ui.dp(48); first.minimumHeight = ui.dp(48)
+                    botoes.addView(first, ui.peso(1f))
+                }
+                botoes.addView(ui.botao("Mais ações", Ui.Estilo.CONTORNO) {
+                    val others = actions.drop(1)
+                    androidx.appcompat.app.AlertDialog.Builder(ui.ctx).setTitle("Turno e ferramentas")
+                        .setItems((others.map { it.text.toString() } + "Lançamentos do dia").toTypedArray()) { _, index ->
+                            if (index < others.size) others[index].performClick() else a.detalheDia()
+                        }.setNegativeButton("Voltar", null).show()
+                }.apply { textSize = 13f }, ui.peso(1f, ui.dp(6)))
+            }
             val (s, cor) = when (sit.fase) {
                 MaquinaTurno.Fase.ATIVO -> "● Trabalhando" to Cores.CIANO
                 MaquinaTurno.Fase.PAUSADO -> "⏸ Pausado" to Cores.LARANJA
@@ -366,7 +372,7 @@ class ResumoCard(private val ui: Ui, private val a: AcoesPainel) {
 }
 
 // ---------------- Metas (componente 2) ----------------
-class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
+class MetasCard(private val ui: Ui, private val a: AcoesPainel, private val compacto: Boolean = false) {
     val view = ui.card(acento = Cores.ESMERALDA)
     private val linha = ui.hbox().apply { gravity = Gravity.TOP }
     private val alerta = ui.vbox()
@@ -374,10 +380,12 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
     private val textos = mutableMapOf<String, TextView>()
     private val textos2 = mutableMapOf<String, TextView>()
     private val colunas = mutableMapOf<String, LinearLayout>()
+    private val aviso = ui.botaoIcone(R.drawable.ic_info, "Aviso da meta", Cores.ESMERALDA) {}.apply { visibility = View.GONE }
 
     init {
         val topo = ui.hbox()
         topo.addView(ui.tituloIcone(R.drawable.ic_flag, "Metas", Cores.ESMERALDA), ui.peso(1f))
+        if (compacto) { view.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)); topo.addView(aviso) }
         topo.addView(ui.botao("Planejamento", Ui.Estilo.TEXTO) { a.planejamento() }.apply {
             contentDescription = "Abrir o planejamento, onde as metas são calculadas"
         })
@@ -385,12 +393,14 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
         view.addView(linha, ui.mp(ui.dp(6)))
         view.addView(alerta, ui.mp())
         listOf(TipoMeta.DIA to "Dia", TipoMeta.SEMANA to "Semana", TipoMeta.MES to "Mês").forEachIndexed { i, (tipo, nome) ->
-            val col = ui.vbox().apply {
+            val col = ui.vbox(ui.dp(8)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL; isFocusable = true
                 minimumHeight = ui.dp(48)
+                background = RotaDesign.panel(ui, if (i == 0) Cores.CIANO else if (i == 1) Cores.ESMERALDA else Cores.MAGENTA)
+                setOnClickListener { a.planejamento() }
             }
             col.addView(ui.text(nome, 14f, Cores.BRANCO, bold = true))
-            val ring = MetaRing(ui.ctx); aneis[tipo] = ring
+            val ring = MetaRing(ui.ctx, if (compacto) 56 else 88); aneis[tipo] = ring
             col.addView(ring, LinearLayout.LayoutParams(-2, -2).apply { topMargin = ui.dp(4) })
             val t = ui.ajustavel("", 13f, 9f, Cores.BRANCO_70, bold = false).apply { gravity = Gravity.CENTER }; textos[tipo] = t
             col.addView(t, ui.mp(ui.dp(4)))
@@ -421,6 +431,16 @@ class MetasCard(private val ui: Ui, private val a: AcoesPainel) {
             }
         }
         alerta.removeAllViews()
+        aviso.visibility = if (compacto && alertaAtual != null) View.VISIBLE else View.GONE
+        if (compacto && alertaAtual != null) {
+            val (chave, texto, _) = alertaAtual
+            aviso.contentDescription = "$texto. Abrir aviso da meta"
+            aviso.setOnClickListener {
+                androidx.appcompat.app.AlertDialog.Builder(ui.ctx).setTitle("Progresso da meta").setMessage(texto)
+                    .setPositiveButton("Dispensar") { _, _ -> a.dispensarAlerta(chave) }.setNegativeButton("Voltar", null).show()
+            }
+            return
+        }
         if (alertaAtual != null) {
             val (chave, texto, lim) = alertaAtual
             val c = ui.vbox(ui.dp(12)).apply {
@@ -473,9 +493,10 @@ class DicaCard(private val ui: Ui, private val a: AcoesPainel) {
 
 // ---------------- KPIs do período ----------------
 class KpiStrip(private val ui: Ui, colunas: Int) {
+    private var compararSemana = false
     val view: LinearLayout = ui.vbox()
     private inner class Kpi(val titulo: String, icone: Int, val cor: Int) {
-        val card = ui.card(acento = cor, colorido = true).apply { setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)) }
+        val card = ui.card(acento = cor, colorido = true).apply { setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8)) }
         val valor = ui.ajustavel("—", 24f, 13f)
         val sub = ui.ajustavel("", 12f, 9f, Cores.BRANCO_70, bold = false)
         val pil = android.widget.FrameLayout(ui.ctx).apply { minimumHeight = ui.dp(24) }
@@ -511,10 +532,12 @@ class KpiStrip(private val ui: Ui, colunas: Int) {
     }
 
     private fun pilula(k: Kpi, v: Double?, suf: String) {
-        k.pil.removeAllViews(); k.pil.addView(ui.pilula(v, suf), android.widget.FrameLayout.LayoutParams(-2, -2))
+        k.pil.removeAllViews()
+        k.pil.addView(if (compararSemana) ui.text("Dias fechados: ver relatório", 11f, Cores.BRANCO_70) else ui.pilula(v, suf), android.widget.FrameLayout.LayoutParams(-2, -2))
     }
 
     fun bind(e: Estatisticas) {
+        compararSemana = e.periodo == Periodo.SEMANA
         val suf = e.periodo.comparacao
         Anima.contar(liq.valor, liq.ult, e.liquidoCentavos, Fmt::reais); liq.ult = e.liquidoCentavos
         liq.valor.setTextColor(if (e.liquidoCentavos >= 0) Cores.ESMERALDA else Cores.CORAL)
@@ -583,14 +606,14 @@ class SeletorPeriodo(private val ui: Ui, private val aoMudar: (Periodo) -> Unit)
             b.background = if (on) android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Cores.VIOLETA, Cores.mix(Cores.VIOLETA, Cores.MAGENTA, 0.5f)),
             ).apply { cornerRadius = ui.dpf(22f) } else null
-            b.setTextColor(if (on) Cores.OBSIDIAN else Cores.BRANCO_70)
+            b.setTextColor(if (on) Cores.BRANCO else Cores.BRANCO_70)
             b.contentDescription = "Período: ${p.rotulo}" + if (on) ", selecionado" else ""
         }
     }
 }
 
 /** Líquido do período (área) + bruto por app (barras 3D). */
-class GraficoCard(private val ui: Ui, alturaDp: Int = 190) {
+class GraficoCard(private val ui: Ui, alturaDp: Int = 190, compacto: Boolean = false) {
     val view = ui.card(acento = Cores.CIANO)
     private val titulo = ui.titulo("Líquido")
     private val total = ui.ajustavel("R$ 0,00", 26f, 16f)
@@ -607,6 +630,7 @@ class GraficoCard(private val ui: Ui, alturaDp: Int = 190) {
         view.addView(total, ui.mp(ui.dp(4)))
         area.alturaDp = alturaDp
         view.addView(area, ui.mp(ui.dp(8)))
+        if (!compacto) {
         view.addView(ui.divisor())
         view.addView(ui.text("BRUTO POR APP", 11f, Cores.BRANCO_70, bold = true).apply { letterSpacing = 0.1f })
         view.addView(barras, ui.mp(ui.dp(6)))
@@ -618,13 +642,14 @@ class GraficoCard(private val ui: Ui, alturaDp: Int = 190) {
             }
             view.addView(leg, ui.mp(ui.dp(2)))
         }
+        }
     }
 
     fun bind(e: Estatisticas) {
         titulo.text = "LÍQUIDO — ${when (e.periodo) { Periodo.HOJE -> "ÚLTIMOS 7 DIAS"; Periodo.SEMANA -> "ESTA SEMANA"; Periodo.MES -> "ESTE MÊS"; Periodo.ANO -> "ESTE ANO" }}"
         Anima.contar(total, ult, e.liquidoCentavos, Fmt::reais); ult = e.liquidoCentavos
         total.setTextColor(if (e.liquidoCentavos >= 0) Cores.BRANCO else Cores.CORAL)
-        pil.removeAllViews(); pil.addView(ui.pilula(e.variacao(e.liquidoCentavos, e.liquidoAnterior), e.periodo.comparacao))
+        pil.removeAllViews(); pil.addView(if (e.periodo == Periodo.SEMANA) ui.text("Comparação no relatório", 11f, Cores.BRANCO_70) else ui.pilula(e.variacao(e.liquidoCentavos, e.liquidoAnterior), e.periodo.comparacao))
         area.definir(e.serie, "Gráfico de líquido: " + e.serie.joinToString("; ") { "${it.rotulo} ${Fmt.reais(it.liquidoCentavos)}" })
         barras.definir(e.serie, "Bruto por app: " + e.serie.joinToString("; ") { "${it.rotulo} ${Fmt.reais(it.porApp.values.sum())}" })
     }
@@ -721,7 +746,7 @@ class RankingCard(private val ui: Ui, private val a: AcoesPainel) {
 }
 
 /** Tabela "Últimos lançamentos" do período. */
-class LancamentosCard(private val ui: Ui, private val a: AcoesPainel) {
+class LancamentosCard(private val ui: Ui, private val a: AcoesPainel, private val compacto: Boolean = false) {
     val view = ui.card()
     private val tabela = ui.vbox()
 
@@ -745,10 +770,11 @@ class LancamentosCard(private val ui: Ui, private val a: AcoesPainel) {
             tabela.addView(ui.text("Nenhum lançamento neste período. Use o + no ranking ou o botão Gasto.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(10)))
             return
         }
-        e.ultimos.forEach { l ->
+        e.ultimos.take(if (compacto) 2 else 8).forEach { l ->
             tabela.addView(ui.divisor().apply { (layoutParams as LinearLayout.LayoutParams).setMargins(0, ui.dp(6), 0, ui.dp(6)) })
             val linha = ui.hbox().apply {
-                isClickable = true; isFocusable = true; minimumHeight = ui.dp(40)
+                isClickable = true; isFocusable = true; minimumHeight = ui.dp(48)
+                background = ui.fundo(Cores.ELEVADA, raio = 10f)
                 setOnClickListener { a.abrirDia(l.data) }
                 contentDescription = "${if (l.ganho) "Ganho" else "Gasto"} ${l.nome}, ${Fmt.reais(Math.abs(l.centavos))}, dia ${l.data}. Toque para editar"
             }
@@ -781,26 +807,39 @@ class LimitesCard(private val ui: Ui, private val a: AcoesPainel) {
     private var envsCache: List<space.neural.luna.dashboard.Plano.Envelope> = emptyList()
     private val rotacionar = object : Runnable {
         override fun run() {
-            if (envsCache.isNotEmpty()) {
+            if (envsCache.size > 1 && view.isAttachedToWindow) {
                 idx = (idx + 1) % envsCache.size
                 desenharUm(envsCache[idx])
+                handler.postDelayed(this, 5000)
             }
-            handler.postDelayed(this, 5000)
         }
     }
 
-    fun bind(p: Painel) {
-        lista.removeAllViews()
-        val envs = p.envelopes()
-        envsCache = envs
+    init {
+        view.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: android.view.View) { agendarRotacao() }
+            override fun onViewDetachedFromWindow(v: android.view.View) { handler.removeCallbacks(rotacionar) }
+        })
+    }
+
+    private fun agendarRotacao() {
         handler.removeCallbacks(rotacionar)
+        if (view.isAttachedToWindow && envsCache.size > 1) handler.postDelayed(rotacionar, 5000)
+    }
+
+    fun bind(p: Painel) {
+        val envs = p.envelopes()
+        val mesmaLista = envs.map { it.limite.id } == envsCache.map { it.limite.id }
+        envsCache = envs
         if (envs.isEmpty()) {
+            handler.removeCallbacks(rotacionar)
+            lista.removeAllViews()
             lista.addView(ui.text("Nenhum limite ainda. Crie envelopes (ex.: Supermercado R$ 800) no Planejamento.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
             return
         }
-        idx = idx.coerceIn(0, envs.size - 1)
+        if (!mesmaLista) idx = 0 else idx = idx.coerceIn(0, envs.size - 1)
         desenharUm(envs[idx])
-        handler.postDelayed(rotacionar, 5000)
+        if (!mesmaLista) agendarRotacao()
     }
 
     private fun desenharUm(e: space.neural.luna.dashboard.Plano.Envelope) {

@@ -22,3 +22,11 @@ keystore.properties
 .dev.vars
 .wrangler/
 node_modules/
+
+# Recoverable local snapshots can contain local configuration; never publish.
+backups/
+tmp/backups/
+token-server/build-test/
+# Large reproducible offline voice artifacts; prepare via tools/tts/prepare_android_voice.ps1.
+/app/libs/sherpa-onnx-1.13.8.aar
+/app/src/main/assets/supertonic3/

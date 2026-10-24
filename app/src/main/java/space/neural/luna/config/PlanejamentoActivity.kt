@@ -112,7 +112,7 @@ class PlanejamentoActivity : AppCompatActivity() {
     }
 
     private fun secao(icone: Int, titulo: String, cor: Int, explica: String?): LinearLayout {
-        val card = ui.card(acento = cor)
+        val card = ui.card(acento = cor, colorido = true)
         card.addView(ui.tituloIcone(icone, titulo, cor))
         if (explica != null) card.addView(ui.text(explica, 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
         conteudo.addView(card, ui.mp(if (conteudo.childCount == 0) 0 else ui.dp(14)))
@@ -126,10 +126,10 @@ class PlanejamentoActivity : AppCompatActivity() {
         g.addView(ganhoHora, ui.mp(ui.dp(8)))
         val cf = secao(R.drawable.ic_flag, "Contas fixas", Cores.LARANJA, "Aluguel, internet, parcela… nome, valor e dia do vencimento.")
         cf.addView(listaContas, ui.mp(ui.dp(8)))
-        cf.addView(ui.comIcone(ui.botao("Conta fixa") { editarConta(null) }, R.drawable.ic_add), ui.mp(ui.dp(8)))
+        cf.addView(ui.comIcone(ui.botao("Conta fixa", Ui.Estilo.CHEIO_VIOLETA) { editarConta(null) }, R.drawable.ic_add), ui.mp(ui.dp(8)))
         val li = secao(R.drawable.ic_wallet, "Contas com limite (envelopes)", Cores.ESMERALDA, "Quanto pode gastar no mês em cada coisa, ex.: Supermercado R$ 1.000, Lanche R$ 200.")
         li.addView(listaLimites, ui.mp(ui.dp(8)))
-        li.addView(ui.comIcone(ui.botao("Limite") { editarLimite(null) }, R.drawable.ic_add), ui.mp(ui.dp(8)))
+        li.addView(ui.comIcone(ui.botao("Limite", Ui.Estilo.CHEIO_ESMERALDA) { editarLimite(null) }, R.drawable.ic_add), ui.mp(ui.dp(8)))
         val rd = secao(R.drawable.ic_trending, "Renda desejada", Cores.VIOLETA, "Opcional: quanto você quer que sobre no mês além das contas.")
         rd.addView(renda, ui.mp(ui.dp(8)))
         val sg = secao(R.drawable.ic_bulb, "Sugestão de metas", Cores.CIANO, null)

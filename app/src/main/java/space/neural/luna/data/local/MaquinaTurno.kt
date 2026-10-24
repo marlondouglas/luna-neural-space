@@ -39,7 +39,9 @@ object MaquinaTurno {
     fun fecharDiaAnterior(turnos: List<Turno>, hoje: String, agora: Long): List<Turno> {
         return turnos.map { t ->
             if (!t.deleted && t.data < hoje && t.estado in setOf(EstadoTurno.ATIVO, EstadoTurno.PAUSADO, EstadoTurno.CAFE)) {
-                mudar(t, EstadoTurno.FECHADO, agora)
+                val midnight = java.time.LocalDate.parse(t.data).plusDays(1)
+                    .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                mudar(t, EstadoTurno.FECHADO, minOf(agora, midnight).coerceAtLeast(t.ultimoEvento))
             } else t
         }
     }
@@ -96,7 +98,7 @@ fun situacao(turnos: List<Turno>, hoje: String): Situacao {
     /** Iniciar: usa o turno pronto (zerado) ou cria o próximo número do dia. */
     fun iniciar(s: Situacao, hoje: String, agora: Long): Turno {
         val pronto = s.turno?.takeIf { it.estado == EstadoTurno.PRONTO }
-        val n = s.numero.coerceIn(1, TOTAL)
+        val n = if (s.turno != null && s.turno.data != hoje) 1 else s.numero.coerceIn(1, TOTAL)
         return pronto?.copy(estado = EstadoTurno.ATIVO, inicio = agora, ultimoEvento = agora, fim = null)
             ?: Turno(id = idDoTurno(hoje, n), data = hoje, inicio = agora, ultimoEvento = agora, numero = n)
     }

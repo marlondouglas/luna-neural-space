@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -94,9 +99,13 @@
             android:name=".config.ConfiguracoesActivity"
             android:exported="false"
             android:label="Configurações" />
+        <activity android:name=".memory.MemorySettingsActivity" android:exported="false" android:label="Memória local da Luna" />
+        <activity android:name=".voz.VoiceSettingsActivity" android:exported="false" android:label="Voz da Luna" />
+        <activity android:name=".vehicle.VehicleTelemetryActivity" android:exported="false" android:label="Meu carro" />
+        <uses-library android:name="android.car" android:required="false" />
 
-        <activity android:name=".pages.ParceirosActivity" android:exported="false" android:label="Parceiros" />
         <activity android:name=".pages.MapRadioActivity" android:exported="false" android:label="Mapa e Rádio" />
+        <activity android:name=".pages.ParceirosActivity" android:exported="false" android:label="Parceiros" />
         <activity android:name=".pages.MapActivity" android:exported="false" android:label="Mapa" />
         <activity android:name=".pages.RadioActivity" android:exported="false" android:label="Rádio dos Motoristas" />
         <activity android:name=".pages.LunaPageActivity" android:exported="false" android:label="Luna" />

@@ -98,9 +98,8 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     private val permMic = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) ouvir() else luna.ocioso("Sem permissão do microfone. Toque duas vezes para escrever na conversa.")
     }
-    private var fotoUri: android.net.Uri? = null
-    private val cameraNota = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok -> if (ok) fotoUri?.let { lerNota(it) } }
-    private val galeriaNota = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri -> uri?.let { lerNota(it) } }
+    private val receiptCapture = space.neural.luna.media.ReceiptCapture(this, ::lerNota,
+        { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }, { voz.parar(); space.neural.luna.avatar.LunaVoz.parar() })
     private val ditadoExterno = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!t.isNullOrBlank()) perguntarLuna(t) else luna.ocioso()
@@ -286,6 +285,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     }
 
     private fun ouvir() {
+        voz.motivoBloqueio()?.let { luna.ocioso(it); return }
         space.neural.luna.avatar.LunaVoz.parar()
         if (!voz.disponivel()) {
             val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -299,13 +299,18 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
     }
 
     /** Manda para a Luna (voz transcrita ou botão) e mostra/fala a resposta no próprio card. */
+    private fun barraInferiorParceiros(root: LinearLayout) {
+        root.addView(ui.botao("Parceiros e Ofertas", Ui.Estilo.CONTORNO) {
+            startActivity(Intent(this, space.neural.luna.pages.ParceirosActivity::class.java))
+        }, ui.mp())
+    }
+
     private fun perguntarLuna(texto: String, rotulo: String? = null) {
         luna.pensando(rotulo ?: texto)
         lifecycleScope.launch {
             val r = conversa.enviar(texto, voz = rotulo == null, rotulo = rotulo)
-            luna.resposta(r)
-            // na conversa contínua, ela volta a ouvir só depois de terminar de falar
-            if (voz.ativa) voz.falar(r.texto) else ler(r.texto)
+            space.neural.luna.chat.LunaNavigationController.open(this@MainActivity, r.destino)
+            mostrarRespostaComVoz(r)
         }
     }
 
@@ -314,15 +319,12 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val onb = getSharedPreferences("onboarding", MODE_PRIVATE)
         val modoCarro = onb.getString("dispositivo", "PHONE") == "CARRO"
         val m = PopupMenu(this, ancora)
-        if (!modoCarro) m.menu.add(0, 1, 0, "Tirar foto da nota")
+        if (!modoCarro && receiptCapture.canTakePhoto()) m.menu.add(0, 1, 0, "Tirar foto da nota")
         m.menu.add(0, 2, 1, "Escolher da galeria")
         m.setOnMenuItemClickListener {
             if (it.itemId == 1) {
-                val dir = java.io.File(cacheDir, "fotos").apply { mkdirs() }
-                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", java.io.File(dir, "nota.jpg"))
-                fotoUri = uri
-                runCatching { cameraNota.launch(uri) }.onFailure { Toast.makeText(this, "Câmera indisponível. Use a galeria.", Toast.LENGTH_SHORT).show() }
-            } else runCatching { galeriaNota.launch("image/*") }
+                receiptCapture.capture()
+            } else receiptCapture.selectImage()
             true
         }
         m.show()
@@ -335,14 +337,27 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         lifecycleScope.launch {
             val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { space.neural.luna.chat.Foto.reduzir(this@MainActivity, uri) }.getOrNull() }
             val r = if (jpeg == null) space.neural.luna.chat.LunaConversa.Resposta("Não consegui abrir essa foto.") else conversa.lerNota(jpeg)
-            luna.resposta(r)
-            ler(r.texto)
+            mostrarRespostaComVoz(r)
         }
     }
 
     private fun temInternet(): Boolean {
         val caps = rede.getNetworkCapabilities(rede.activeNetwork) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun mostrarRespostaComVoz(r: space.neural.luna.chat.LunaConversa.Resposta) {
+        val owner = space.neural.luna.conta.Conta.uid()
+        var shown = false
+        val reveal = {
+            if (!shown && !isDestroyed && space.neural.luna.conta.Conta.uid() == owner) {
+                shown = true
+                luna.resposta(r)
+            }
+        }
+        luna.pensando("Preparando voz…")
+        if (voz.ativa) voz.falar(r.texto, aoIniciar = reveal, aoTerminar = reveal)
+        else space.neural.luna.avatar.LunaVoz.falarSincronizado(this, r.texto, reveal, reveal)
     }
 
     private fun mudouRede() {
@@ -367,20 +382,21 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         val telefonePaisagem = cls >= 2 && w > h && h < 480
         if (telefonePaisagem) cls = 2
         val tablet = cls >= 2 && !telefonePaisagem
-        val margem = ui.dp(if (tablet) 24 else 16)
-        val gap = ui.dp(if (tablet) 16 else 12)
+        val margem = ui.dp(if (tablet) 12 else 10)
+        val gap = ui.dp(if (tablet) 10 else 8)
 
         periodo = runCatching { Periodo.valueOf(prefs.getString("periodo", "HOJE")!!) }.getOrDefault(Periodo.HOJE)
         cab = Cabecalho(ui, compacto = telefonePaisagem || cls == 3, a = this, estreito = cls == 1 && w < 480)
-        turnoCard = TurnoCard(ui, largo = false, a = this, orbDp = when { telefonePaisagem -> 150; cls == 3 -> 190; else -> 210 })
-        metas = MetasCard(ui, this)
-        kpis = KpiStrip(ui, colunas = if (telefonePaisagem || (cls == 1 && w < 600)) 2 else 4).apply { aoTocarLimites = { abrirLimites() } }
+        val compacto = w > h && cfg.fontScale < 1.5f
+        turnoCard = TurnoCard(ui, largo = false, a = this, orbDp = when { telefonePaisagem -> 112; cls == 3 -> 150; else -> 160 }, mostrarRegistroRapido = false, compacto = compacto)
+        metas = MetasCard(ui, this, compacto = compacto)
+        kpis = KpiStrip(ui, colunas = if (cls == 1 && w < 600) 2 else 4).apply { aoTocarLimites = { abrirLimites() } }
         seletor = SeletorPeriodo(ui) { escolherPeriodo(it) }
-        grafico = GraficoCard(ui, alturaDp = when { cls == 3 -> 300; cls == 2 && !telefonePaisagem -> 260; else -> 200 })
+        grafico = GraficoCard(ui, alturaDp = when { compacto -> 100; cls == 3 -> 140; cls == 2 -> 160; else -> 180 }, compacto = compacto)
         roscas = RoscasCard(ui)
-        lancamentos = LancamentosCard(ui, this)
+        lancamentos = LancamentosCard(ui, this, compacto = compacto)
         luna = LunaCard(ui, { falarComLuna() }, { conversar() }, { b -> perguntarLuna(b.comando, b.rotulo) }, { escolherFotoNota(it) })
-        relatorios = RelatoriosCard(ui) { startActivity(Intent(this, space.neural.luna.dashboard.RelatorioActivity::class.java)) }
+        relatorios = RelatoriosCard(ui) { startActivity(Intent(this, space.neural.luna.dashboard.RelatorioActivity::class.java).putExtra("period", periodo.name)) }
         calendario = CalendarioCard(ui) { abrirDia(it.toString()) }
         noticias = NoticiasCard(ui, lado = cls == 2 && !telefonePaisagem || (cls == 1 && w >= 480), a = this)
         dica = DicaCard(ui, this)
@@ -388,61 +404,77 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         raiz.addView(cab.view, ui.mp())
         bannerTeste = montarBanner()
         raiz.addView(bannerTeste, ui.mp(ui.dp(8)))
-        if (!telefonePaisagem) raiz.addView(luna.view, ui.mp(ui.dp(8)))
+        raiz.addView(luna.view, ui.mp(ui.dp(8)))
 
         fun coluna(id: Int, vararg cards: View): ScrollView {
             val col = ui.vbox()
             cards.forEachIndexed { i, c -> col.addView(c, ui.mp(if (i == 0) 0 else gap)) }
             col.setPadding(0, ui.dp(4), 0, gap)
             col.clipToPadding = false; col.clipChildren = false
-            return ScrollView(this).apply { this.id = id; addView(col); isVerticalScrollBarEnabled = false; clipToPadding = false }
+            return ScrollView(this).apply { this.id = id; addView(col); isVerticalScrollBarEnabled = true; clipToPadding = false }
         }
         fun linha(vararg cards: View) = ui.hbox().apply {
             gravity = android.view.Gravity.TOP
-            cards.forEachIndexed { i, c -> addView(c, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = if (i == 0) 0 else gap }) }
+            cards.forEachIndexed { i, c -> addView(c, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = if (i == 0) 0 else gap }) }
         }
 
-        // v0.1.5: sem "Resumo do dia" (ações no card do turno), sem "Ranking", limites resumidos no KPI;
-        // o clima de GV vira card de destaque e o gráfico de líquido ganha o espaço liberado.
+        val registro = ui.card(acento = Cores.CIANO).apply {
+            addView(ui.tituloIcone(R.drawable.ic_wallet, "Registro financeiro", Cores.CIANO), ui.mp())
+            addView(ui.comIcone(ui.botao("Ganho", Ui.Estilo.CHEIO_ESMERALDA) { lancarGanho(null) }, R.drawable.ic_add), ui.mp(ui.dp(8)))
+            addView(ui.comIcone(ui.botao("Gasto", Ui.Estilo.CONTORNO) { lancarGasto(null) }.apply { background = space.neural.luna.dashboard.RotaDesign.gradient(ui, Cores.CORAL, Cores.MAGENTA) }, R.drawable.ic_wallet), ui.mp(ui.dp(6)))
+            addView(ui.comIcone(ui.botao("Recarga", Ui.Estilo.CONTORNO) { lancarGasto(space.neural.luna.data.local.CategoriaGasto.ENERGIA) }.apply { background = space.neural.luna.dashboard.RotaDesign.gradient(ui, Cores.VIOLETA, Cores.CIANO) }, R.drawable.ic_bolt), ui.mp(ui.dp(6)))
+        }
         val ordem: List<View>
-        when {
-            cls == 1 -> {
-                ordem = listOf(kpis.view, turnoCard.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, metas.view, calendario.view, lancamentos.view, dica.view)
-                raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+        if (cls == 1) {
+            ordem = listOf(kpis.view, turnoCard.view, registro, calendario.view, relatorios.view, seletor.view, grafico.view, roscas.view, noticias.view, metas.view, lancamentos.view, dica.view)
+            raiz.addView(coluna(R.id.rolagem_principal, *ordem.toTypedArray()), LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+        } else if (w >= 1000 && cfg.fontScale < 1.5f) {
+            val conteudo = ui.vbox()
+            conteudo.addView(kpis.view, ui.mp())
+            val relatorioBox = ui.vbox().apply { addView(relatorios.view, ui.mp()); addView(seletor.view, ui.mp(gap)) }
+            conteudo.addView(linha(turnoCard.view, metas.view, registro), ui.mp(gap))
+            conteudo.addView(linha(grafico.view, relatorioBox, lancamentos.view), ui.mp(gap))
+            conteudo.addView(linha(roscas.view, calendario.view, noticias.view), ui.mp(gap))
+            conteudo.addView(dica.view, ui.mp(gap))
+            conteudo.setPadding(0, 0, 0, gap)
+            ordem = listOf(kpis.view, turnoCard.view, relatorios.view, registro, grafico.view, metas.view, lancamentos.view, roscas.view, calendario.view, noticias.view, dica.view)
+            raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(conteudo); isVerticalScrollBarEnabled = true }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
+        } else {
+            // Uma superfície de rolagem: painéis alinhados como a referência, sem colunas presas com vazios.
+            val conteudo = ui.vbox()
+            conteudo.addView(kpis.view, ui.mp())
+            val ladoDireito = ui.vbox()
+            if (w >= 1000 && cfg.fontScale < 1.5f) {
+                ladoDireito.addView(linha(calendario.view, relatorios.view, noticias.view), ui.mp())
+                ladoDireito.addView(seletor.view, ui.mp(gap))
+                val graficos = ui.hbox().apply {
+                    gravity = android.view.Gravity.TOP
+                    addView(grafico.view, LinearLayout.LayoutParams(0, -2, 1.3f))
+                    addView(roscas.view, LinearLayout.LayoutParams(0, -2, 1.1f).apply { leftMargin = gap })
+                    addView(registro, LinearLayout.LayoutParams(0, -2, 0.85f).apply { leftMargin = gap })
+                }
+                ladoDireito.addView(graficos, ui.mp(gap))
+            } else {
+                ladoDireito.addView(linha(calendario.view, relatorios.view), ui.mp())
+                ladoDireito.addView(seletor.view, ui.mp(gap))
+                ladoDireito.addView(grafico.view, ui.mp(gap))
+                ladoDireito.addView(linha(roscas.view, registro), ui.mp(gap))
+                ladoDireito.addView(noticias.view, ui.mp(gap))
             }
-            telefonePaisagem -> {
-                val esq = listOf(turnoCard.view, metas.view, calendario.view)
-                val dir = listOf(luna.view, kpis.view, noticias.view, relatorios.view, seletor.view, grafico.view, roscas.view, lancamentos.view, dica.view)
-                ordem = esq + dir
-                val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_esquerda, *esq.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.4f))
-                l.addView(coluna(R.id.rolagem_direita, *dir.toTypedArray()), LinearLayout.LayoutParams(0, -1, 0.6f).apply { leftMargin = gap })
-                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+            val corpo = ui.hbox().apply {
+                gravity = android.view.Gravity.TOP
+                addView(turnoCard.view, LinearLayout.LayoutParams(0, -2, if (w >= 1000) 0.23f else 0.30f))
+                addView(ladoDireito, LinearLayout.LayoutParams(0, -2, if (w >= 1000) 0.77f else 0.70f).apply { leftMargin = gap })
             }
-            cls == 2 -> {
-                ordem = listOf(kpis.view, turnoCard.view, noticias.view, metas.view, relatorios.view, seletor.view, grafico.view, roscas.view, calendario.view, lancamentos.view, dica.view)
-                val col = ui.vbox()
-                col.addView(kpis.view, ui.mp(ui.dp(4)))
-                val lado = ui.vbox().apply { addView(noticias.view, ui.mp()); addView(metas.view, ui.mp(gap)) }
-                col.addView(linha(turnoCard.view, lado), ui.mp(gap))
-                col.addView(relatorios.view, ui.mp(gap))
-                col.addView(seletor.view, ui.mp(gap))
-                col.addView(grafico.view, ui.mp(gap))
-                col.addView(linha(roscas.view, calendario.view), ui.mp(gap))
-                col.addView(lancamentos.view, ui.mp(gap))
-                col.addView(dica.view, ui.mp(gap))
-                col.setPadding(0, 0, 0, gap)
-                raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(col); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap / 2 })
+            conteudo.addView(corpo, ui.mp(gap))
+            if (w >= 1000) conteudo.addView(linha(metas.view, lancamentos.view, dica.view), ui.mp(gap))
+            else {
+                conteudo.addView(linha(metas.view, lancamentos.view), ui.mp(gap))
+                conteudo.addView(dica.view, ui.mp(gap))
             }
-            else -> {
-                ordem = listOf(kpis.view, turnoCard.view, metas.view, calendario.view, relatorios.view, seletor.view, grafico.view, lancamentos.view, noticias.view, roscas.view, dica.view)
-                raiz.addView(kpis.view, ui.mp(gap / 2))
-                val l = ui.hbox().apply { gravity = android.view.Gravity.TOP }
-                l.addView(coluna(R.id.rolagem_col1, turnoCard.view, metas.view, calendario.view), LinearLayout.LayoutParams(0, -1, 1f))
-                l.addView(coluna(R.id.rolagem_col2, relatorios.view, seletor.view, grafico.view, lancamentos.view), LinearLayout.LayoutParams(0, -1, 1.15f).apply { leftMargin = gap })
-                l.addView(coluna(R.id.rolagem_col3, noticias.view, roscas.view, dica.view), LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = gap })
-                raiz.addView(l, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
-            }
+            conteudo.setPadding(0, 0, 0, gap)
+            ordem = listOf(kpis.view, turnoCard.view, calendario.view, relatorios.view, noticias.view, seletor.view, grafico.view, roscas.view, registro, metas.view, lancamentos.view, dica.view)
+            raiz.addView(ScrollView(this).apply { id = R.id.rolagem_principal; addView(conteudo); isVerticalScrollBarEnabled = true }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = gap })
         }
         // Galáxia com aurora animada atrás de tudo.
         val tela = android.widget.FrameLayout(this)
@@ -450,20 +482,28 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         tela.addView(raiz, android.widget.FrameLayout.LayoutParams(-1, -1))
         baixando = space.neural.luna.dashboard.BaixandoDados(ui, "Continuar sem esperar") { pularBaixando = true; atualizarBaixando() }
             .also { tela.addView(it.view, android.widget.FrameLayout.LayoutParams(-1, -1)) }
-        // Barra inferior: acesso ao Rádio/Mapa (conforme mockup)
-        val barraRadio = ui.hbox().apply {
-            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
-            setBackgroundColor(Cores.alpha(Cores.OBSIDIAN, 0.92f))
+        val dock = ui.hbox().apply {
+            tag = "primary_navigation"
+            gravity = android.view.Gravity.CENTER
+            setPadding(ui.dp(4), ui.dp(6), ui.dp(4), ui.dp(6))
+            background = ui.fundo(Cores.alpha(Cores.OBSIDIAN, 0.96f), Cores.alpha(Cores.VIOLETA, 0.65f), 22f)
         }
-        val btnRadio = ui.botao("Rádio", Ui.Estilo.CHEIO_VIOLETA) {
-            startActivity(android.content.Intent(this, space.neural.luna.pages.MapRadioActivity::class.java))
+        fun destino(rotulo: String, icone: Int, selecionado: Boolean = false, acao: () -> Unit) {
+            val item = ui.vbox().apply {
+                gravity = android.view.Gravity.CENTER
+                minimumHeight = ui.dp(52)
+                isClickable = true; isFocusable = true; contentDescription = rotulo
+                if (selecionado) background = ui.fundo(Cores.alpha(Cores.VIOLETA, 0.25f), Cores.VIOLETA, 16f)
+                setOnClickListener { acao() }
+                addView(ui.icone(icone, if (selecionado) Cores.CIANO else Cores.BRANCO_70, 22))
+                addView(ui.ajustavel(rotulo, 12f, 9f, if (selecionado) Cores.CIANO else Cores.BRANCO_70).apply { gravity = android.view.Gravity.CENTER }, ui.mp(ui.dp(3)))
+            }
+            dock.addView(item, ui.peso(1f, ui.dp(2)))
         }
-        val btnParceiros = ui.botao("Parceiros", Ui.Estilo.CONTORNO) {
-            startActivity(android.content.Intent(this, space.neural.luna.pages.ParceirosActivity::class.java))
-        }
-        barraRadio.addView(btnRadio, ui.peso(1f, ui.dp(4)))
-        barraRadio.addView(btnParceiros, ui.peso(1f, ui.dp(4)))
-        raiz.addView(barraRadio)
+        destino("Início", R.drawable.ic_bolt, true) { findViewById<ScrollView>(R.id.rolagem_principal)?.smoothScrollTo(0, 0) }
+        destino("Mapa e Rádio", R.drawable.ic_map) { startActivity(Intent(this, space.neural.luna.pages.MapRadioActivity::class.java)) }
+        destino("Ofertas", R.drawable.ic_partners) { startActivity(Intent(this, space.neural.luna.pages.ParceirosActivity::class.java)) }
+        raiz.addView(dock, ui.mp(ui.dp(6)))
 
         setContentView(tela)
         atualizarBaixando()
@@ -486,7 +526,7 @@ class MainActivity : AppCompatActivity(), AcoesPainel {
         seletor.bind(periodo)
         val e = p.estatisticas(periodo, agora)
         kpis.bind(e); kpis.bindLimites(p.envelopes()); grafico.bind(e); roscas.bind(e); lancamentos.bind(e)
-        relatorios.bind(p); calendario.bind(p)
+        relatorios.bind(p, periodo); calendario.bind(p)
         noticias.bind(externo, online, carregandoExterno)
         dica.bind(p.hoje)
     }

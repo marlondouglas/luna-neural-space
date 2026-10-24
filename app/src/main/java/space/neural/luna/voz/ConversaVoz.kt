@@ -46,19 +46,43 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
     /** Conversa contínua ligada (entre o primeiro toque e o fim). */
     var ativa = false; private set
     var escutando = false; private set
-    private val continua get() = prefs.getBoolean("conversa_continua", true)
-    private val bargeInLigado get() = prefs.getBoolean("barge_in", true)
+    private val continua get() = prefs.getBoolean("conversa_continua", false)
+    private val bargeInLigado get() = prefs.getBoolean("barge_in", false)
+    private var windowStartedAt = 0L
+    private var recognitionGeneration = 0L
+    private val captureWatchdog = object : Runnable {
+        override fun run() {
+            if (!ativa || (!escutando && barge == null)) return
+            val blocked = captureBlockReason()
+            when {
+                blocked != null -> parar(blocked)
+                SystemClock.elapsedRealtime() - windowStartedAt >= VoiceCapturePolicy.WINDOW_MS -> parar("Janela de voz encerrada. Toque em Responder por voz para continuar.")
+                else -> main.postDelayed(this, 200)
+            }
+        }
+    }
+    private fun captureBlockReason(): String? {
+        val am = act.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val room = space.neural.luna.voice.VoiceRoomManager.get(act)
+        return VoiceCapturePolicy.blockReason(temPermissao(), room.talking.value,
+            room.activeSpeakers.value.any { !it.local }, am.mode == AudioManager.MODE_IN_CALL || am.mode == AudioManager.MODE_IN_COMMUNICATION)
+    }
+    private fun watchCapture() {
+        windowStartedAt = SystemClock.elapsedRealtime()
+        main.removeCallbacks(captureWatchdog); main.post(captureWatchdog)
+    }
 
     fun disponivel(): Boolean {
-        // Flyme Auto / multimídia de carro frequentemente retorna false em isRecognitionAvailable
-        // mesmo com microfone físico presente. Tentamos criar o reconhecedor de qualquer forma.
-        if (SpeechRecognizer.isRecognitionAvailable(act)) return true
-        return runCatching { SpeechRecognizer.createSpeechRecognizer(act).also { it.destroy() } }.isSuccess
+        // Constructing a client does not prove that a recognition service exists.
+        return runCatching { SpeechRecognizer.isRecognitionAvailable(act) ||
+            (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(act)) }.getOrDefault(false)
     }
+    fun motivoBloqueio(): String? = captureBlockReason()
     fun temPermissao() = act.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     /** Primeiro toque: para a Luna (se estiver falando) e começa a ouvir. */
     fun iniciar() {
+        captureBlockReason()?.let { ouvinte.encerrou(it); return }
         ativa = true
         LunaVoz.parar(); pararBarge()
         escutaDesde = SystemClock.elapsedRealtime()
@@ -69,6 +93,8 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
     fun parar(motivo: String? = null) {
         val estava = ativa || escutando
         ativa = false; escutando = false
+        recognitionGeneration++
+        main.removeCallbacks(captureWatchdog)
         pararBarge()
         runCatching { rec?.cancel() }
         modoComunicacao(false)
@@ -78,14 +104,16 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
     fun destruir() { parar(null); rec?.destroy(); rec = null }
 
     /** Fala a resposta; na conversa contínua, volta a ouvir só depois que a fala acabar. */
-    fun falar(texto: String) {
-        if (!ativa || !continua) { ativa = false; modoComunicacao(false); LunaVoz.comunicacao = false; LunaVoz.falar(act, texto); return }
-        val comBarge = bargeInLigado && temPermissao()
-        modoComunicacao(comBarge)
-        LunaVoz.comunicacao = comBarge
-        LunaVoz.falar(act, texto) {
+    fun falar(texto: String, aoIniciar: (() -> Unit)? = null, aoTerminar: (() -> Unit)? = null) {
+        if (!ativa || !continua) { ativa = false; modoComunicacao(false); LunaVoz.comunicacao = false; LunaVoz.falarSincronizado(act, texto, aoIniciar, aoTerminar); return }
+        val comBarge = bargeInLigado && captureBlockReason() == null
+        // Do not seize communication mode: another call/radio has exclusive microphone access.
+        modoComunicacao(false)
+        LunaVoz.comunicacao = false
+        LunaVoz.falarSincronizado(act, texto, aoIniciar) {
+            runCatching { aoTerminar?.invoke() }
             pararBarge()
-            if (ativa) { escutaDesde = SystemClock.elapsedRealtime(); main.postDelayed({ if (ativa) ouvir() }, 250) } // 250 ms: o alto-falante esvazia antes do mic abrir
+            if (ativa) { escutaDesde = SystemClock.elapsedRealtime(); main.postDelayed({ if (ativa && !LunaVoz.ocupada) ouvir() else if (ativa) parar("A fala foi interrompida. Toque em Responder por voz quando desejar.") }, 250) } // 250 ms: o alto-falante esvazia antes do mic abrir
             else modoComunicacao(false)
         }
         if (comBarge) {
@@ -94,6 +122,7 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
                 LunaVoz.parar(); pararBarge()
                 if (ativa) { escutaDesde = SystemClock.elapsedRealtime(); main.postDelayed({ if (ativa) ouvir() }, 120) } // 120 ms: libera o mic
             }.also { if (!it.iniciar()) barge = null }
+            if (barge != null) { ouvinte.ouvindo("Microfone ativo por até 8 segundos (interrupção de voz autorizada)."); watchCapture() }
         }
     }
 
@@ -101,24 +130,36 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
 
     private fun ouvir() {
         if (!ativa) return
+        captureBlockReason()?.let { parar(it); return }
+        if (SystemClock.elapsedRealtime() - escutaDesde >= VoiceCapturePolicy.WINDOW_MS) {
+            parar("Janela de voz encerrada. Toque em Responder por voz para continuar."); return
+        }
+        val generation = ++recognitionGeneration
         modoComunicacao(false)
         LunaVoz.comunicacao = false
-        val r = rec ?: SpeechRecognizer.createSpeechRecognizer(act).also { rec = it }
+        val r = rec ?: runCatching {
+            if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(act)) SpeechRecognizer.createOnDeviceSpeechRecognizer(act)
+            else SpeechRecognizer.createSpeechRecognizer(act)
+        }.getOrElse {
+            parar("Não foi possível abrir o reconhecimento de voz. Use o teclado ou confira o serviço de voz do aparelho."); return
+        }.also { rec = it }
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
         r.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { escutando = true; ouvinte.ouvindo(null) }
+            override fun onReadyForSpeech(params: Bundle?) { if (ativa && generation == recognitionGeneration) { escutando = true; ouvinte.ouvindo("Microfone ativo — fale sua resposta.") } }
             override fun onBeginningOfSpeech() { escutaDesde = SystemClock.elapsedRealtime() }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onPartialResults(b: Bundle?) {
+                if (!ativa || generation != recognitionGeneration) return
                 b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { ouvinte.ouvindo(it) }
             }
             override fun onError(error: Int) {
+                if (generation != recognitionGeneration) return
                 escutando = false
                 if (!ativa) return
                 val semFala = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
@@ -132,9 +173,11 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
                 }
             }
             override fun onResults(b: Bundle?) {
+                if (generation != recognitionGeneration) return
                 escutando = false
                 val t = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
                 if (!ativa) return
+                captureBlockReason()?.let { parar(it); return }
                 if (t.isNullOrBlank()) { main.postDelayed({ ouvir() }, 150); return }
                 if (Encerrar.deveParar(t)) {
                     ativa = false
@@ -148,7 +191,9 @@ class ConversaVoz(private val act: Activity, private val ouvinte: Ouvinte) {
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
         escutando = true
-        ouvinte.ouvindo(null)
+        ouvinte.ouvindo("Microfone ativo — fale sua resposta.")
+        if (windowStartedAt == 0L || SystemClock.elapsedRealtime() - windowStartedAt >= VoiceCapturePolicy.WINDOW_MS) windowStartedAt = escutaDesde
+        main.removeCallbacks(captureWatchdog); main.post(captureWatchdog)
         runCatching { r.startListening(intent) }.onFailure { parar("Reconhecimento de voz indisponível.") }
     }
 

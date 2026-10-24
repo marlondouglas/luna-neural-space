@@ -20,6 +20,18 @@ interface Syncable {
     val deleted: Boolean
 }
 
+/** Histórico local de gravações financeiras, inclusive exclusões lógicas e versões substituídas. */
+@Entity(tableName = "auditoria_financeira", indices = [Index("registroId")])
+data class AuditoriaFinanceira(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val registroId: String,
+    val tipo: String,
+    val acao: String,
+    val antes: String?,
+    val depois: String,
+    val criadaEm: Long = System.currentTimeMillis(),
+)
+
 fun newId(): String = UUID.randomUUID().toString()
 
 /** Estados possíveis de um turno. */

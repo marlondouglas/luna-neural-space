@@ -128,7 +128,7 @@ class GalaxiaView(ctx: Context) : View(ctx) {
  */
 class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val aoAbrir: () -> Unit, private val aoBotao: (LunaConversa.Botao) -> Unit, private val aoCamera: (View) -> Unit = {}) {
     private val fundo = FundoLuna(ui)
-    val view: LinearLayout = ui.vbox(ui.dp(14)).apply {
+    val view: LinearLayout = ui.vbox(ui.dp(8)).apply {
         background = fundo
         elevation = ui.dpf(14f)
         if (android.os.Build.VERSION.SDK_INT >= 28) { outlineSpotShadowColor = Cores.MAGENTA; outlineAmbientShadowColor = Cores.VIOLETA }
@@ -158,14 +158,16 @@ class LunaCard(private val ui: Ui, private val aoFalar: () -> Unit, private val 
     init {
         val l = ui.hbox().apply { gravity = Gravity.CENTER_VERTICAL }
         orb.setOnClickListener { aoFalar() }
-        val orbDp = if (ui.ctx.resources.configuration.screenWidthDp < 400) 46 else if (estreito) 54 else 64
+        val orbDp = if (ui.ctx.resources.configuration.screenWidthDp < 400) 52 else 56
         l.addView(orb, LinearLayout.LayoutParams(ui.dp(orbDp), ui.dp(orbDp)))
         val t = ui.vbox(); t.addView(titulo); t.addView(sub, ui.mp(ui.dp(2)))
         ui.truncar(sub, 2)
         l.addView(t, ui.peso(1f, ui.dp(if (estreito) 8 else 10)))
         // botões sempre dentro do card (peso 0, tamanho fixo): o texto encolhe, nada passa da borda
         val b = if (estreito) 46 else 48; val gap = if (estreito) 4 else 6
-        l.addView(camera, LinearLayout.LayoutParams(ui.dp(b), ui.dp(b)).apply { leftMargin = ui.dp(gap) })
+        val cameraDisponivel = ui.ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+        val modoCarro = ui.ctx.getSharedPreferences("onboarding", Context.MODE_PRIVATE).getString("dispositivo", "PHONE") == "CARRO"
+        if (cameraDisponivel && !modoCarro) l.addView(camera, LinearLayout.LayoutParams(ui.dp(b), ui.dp(b)).apply { leftMargin = ui.dp(gap) })
         l.addView(mic, LinearLayout.LayoutParams(ui.dp(b + 4), ui.dp(b + 4)).apply { leftMargin = ui.dp(gap) })
         l.addView(ui.botaoIcone(R.drawable.ic_chat, "Abrir conversa com a Luna", Cores.BRANCO) { aoAbrir() }, LinearLayout.LayoutParams(ui.dp(b), ui.dp(b)).apply { leftMargin = ui.dp(2) })
         view.addView(l, ui.mp())
@@ -238,7 +240,7 @@ class FundoLuna(private val ui: Ui) : android.graphics.drawable.Drawable() {
 
     override fun onBoundsChange(b: android.graphics.Rect) {
         val w = b.width().toFloat()
-        p.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(Cores.MAGENTA, Cores.VIOLETA, Cores.CIANO, Cores.VIOLETA, Cores.MAGENTA), null, Shader.TileMode.MIRROR)
+        p.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(Cores.OBSIDIAN, Cores.VIOLETA, Cores.CIANO, Cores.VIOLETA, Cores.MAGENTA), null, Shader.TileMode.MIRROR)
         brilho.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.top + b.height() * 0.5f, Cores.alpha(Cores.BRANCO, 0.28f), 0, Shader.TileMode.CLAMP)
         sombra.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(), 0, Cores.alpha(Cores.OBSIDIAN, 0.45f), Shader.TileMode.CLAMP)
         if (anim == null && Anima.ligadas()) {
@@ -315,37 +317,50 @@ class RelatoriosCard(private val ui: Ui, private val aoAbrir: () -> Unit) {
     val view = ui.card(acento = Cores.MAGENTA)
     private val faixa = ui.hbox()
     private val rolagem = object : HorizontalScrollView(ui.ctx) {
-        override fun onTouchEvent(ev: MotionEvent): Boolean { pausaAte = System.currentTimeMillis() + 6000; return super.onTouchEvent(ev) }
-    }.apply { isHorizontalScrollBarEnabled = false; addView(faixa); clipToPadding = false }
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean { pausaAte = System.currentTimeMillis() + 6000; return super.dispatchTouchEvent(ev) }
+    }.apply { isHorizontalScrollBarEnabled = true; isScrollbarFadingEnabled = false; addView(faixa); clipToPadding = false }
     private var pausaAte = 0L
+    private var automatico = true
     private var assinatura = ""
     private val passo = Runnable { avancar() }
 
     init {
         val topo = ui.hbox()
         topo.addView(ui.icone(R.drawable.ic_trending, Cores.MAGENTA, 18))
-        topo.addView(ui.titulo("Relatórios do mês"), ui.peso(1f, ui.dp(8)))
+        topo.addView(ui.titulo("Relatórios"), ui.peso(1f, ui.dp(8)))
+        topo.addView(ui.botao("Parar", Ui.Estilo.CONTORNO) { button ->
+            automatico = !automatico
+            (button as android.widget.Button).text = if (automatico) "Parar" else "Auto"
+            rolagem.removeCallbacks(passo)
+            if (automatico && rolagem.isAttachedToWindow) rolagem.postDelayed(passo, 5000)
+        }.apply { textSize = 12f; contentDescription = "Pausar ou retomar a rolagem automática dos relatórios" })
         topo.addView(ui.botao("Ver tudo", Ui.Estilo.TEXTO) { aoAbrir() })
         view.addView(topo, ui.mp())
         view.addView(rolagem, ui.mp(ui.dp(8)))
         rolagem.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { if (Anima.ligadas()) v.postDelayed(passo, 3500) }
+            override fun onViewAttachedToWindow(v: View) { if (automatico) v.removeCallbacks(passo).also { v.postDelayed(passo, 5000) } }
             override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(passo) }
         })
     }
 
     private fun avancar() {
+        if (!automatico) return
         if (System.currentTimeMillis() >= pausaAte && faixa.childCount > 0) {
             val w = faixa.getChildAt(0).width + ui.dp(10)
             val max = faixa.width - rolagem.width
             if (max > 0) { if (rolagem.scrollX + 4 >= max) rolagem.smoothScrollTo(0, 0) else rolagem.smoothScrollBy(w, 0) }
         }
-        rolagem.postDelayed(passo, 3500)
+        rolagem.postDelayed(passo, 5000)
     }
 
-    fun bind(p: Painel) {
-        val itens = Relatorio.calcular(p)
-        val ass = itens.joinToString("|") { it.valor + it.sub }
+    fun bind(p: Painel, periodo: Periodo = Periodo.MES) {
+        val summary = ReportAnalytics.summarize(ReportAnalytics.window(periodo, p.hoje), p.ganhosTodos, p.gastosTodos, p.turnosTodos, space.neural.luna.sync.Relogio.agora())
+        val itens = listOf(
+            Relatorio.Item("Melhor app · bruto", summary.bestAppByGross?.let { Fmt.nomeApp(it.app) } ?: "—", summary.bestAppByGross?.let { Fmt.reais(it.cents) } ?: "sem dados", Cores.CIANO, R.drawable.ic_car),
+            Relatorio.Item("Melhor dia · líquido", summary.bestDayByNet?.let { Fmt.reais(it.cents) } ?: "—", summary.bestDayByNet?.let { Fmt.dataCurta(it.date) } ?: "sem dados", Cores.LARANJA, R.drawable.ic_calendar),
+            Relatorio.Item("Líquido por hora", summary.netPerHour?.let { Fmt.reais(it) } ?: "—", if (summary.insufficientSample) "amostra insuficiente" else "${summary.rides} corridas · ${summary.recordedDays} dias", Cores.MAGENTA, R.drawable.ic_timer),
+        )
+        val ass = periodo.name + itens.joinToString("|") { it.valor + it.sub }
         if (ass == assinatura) return
         val primeira = assinatura.isEmpty()
         assinatura = ass
@@ -358,7 +373,7 @@ class RelatoriosCard(private val ui: Ui, private val aoAbrir: () -> Unit) {
             }
             tile.addView(ui.hbox().apply {
                 addView(ui.icone(it.icone, Cores.BRANCO, 16))
-                addView(ui.text(it.titulo.uppercase(), 11f, Cores.alpha(Cores.BRANCO, 0.85f), bold = true).apply { letterSpacing = 0.08f }, ui.wc(ui.dp(6)))
+                addView(ui.ajustavel(it.titulo.uppercase(), 11f, 9f, Cores.alpha(Cores.BRANCO, 0.85f), bold = true), ui.peso(1f, ui.dp(6)))
             })
             tile.addView(ui.ajustavel(it.valor, 22f, 12f, Cores.BRANCO), ui.mp(ui.dp(6)))
             tile.addView(ui.ajustavel(it.sub, 12f, 9f, Cores.alpha(Cores.BRANCO, 0.8f), bold = false), ui.mp(ui.dp(2)))
@@ -382,12 +397,13 @@ class CalendarioCard(private val ui: Ui, private val aoAbrirDia: (LocalDate) -> 
     init {
         val topo = ui.hbox()
         topo.addView(ui.icone(R.drawable.ic_calendar, Cores.ESMERALDA, 18))
-        topo.addView(ui.titulo("Calendário"), ui.wc(ui.dp(8)))
-        topo.addView(ui.espaco())
-        topo.addView(ui.botao("‹", Ui.Estilo.TEXTO) { mes = mes.minusMonths(1); desenhar() }.apply { contentDescription = "Mês anterior"; textSize = 22f })
-        topo.addView(titulo, LinearLayout.LayoutParams(ui.dp(if (estreito) 112 else 150), -2))
-        topo.addView(ui.botao("›", Ui.Estilo.TEXTO) { mes = mes.plusMonths(1); desenhar() }.apply { contentDescription = "Próximo mês"; textSize = 22f })
+        topo.addView(ui.titulo("Calendário"), ui.peso(1f, ui.dp(8)))
         view.addView(topo, ui.mp())
+        val navegacao = ui.hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        navegacao.addView(ui.botao("‹", Ui.Estilo.TEXTO) { mes = mes.minusMonths(1); desenhar() }.apply { contentDescription = "Mês anterior"; textSize = 22f })
+        navegacao.addView(titulo, ui.peso(1f))
+        navegacao.addView(ui.botao("›", Ui.Estilo.TEXTO) { mes = mes.plusMonths(1); desenhar() }.apply { contentDescription = "Próximo mês"; textSize = 22f })
+        view.addView(navegacao, ui.mp())
         view.addView(grade, ui.mp(ui.dp(6)))
     }
 

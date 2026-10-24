@@ -50,7 +50,7 @@ object Anima {
 }
 
 /** Anel 3D de meta: espessura sombreada, arco em degradê esmeralda→ciano animado, brilho neon ≥ 80%. */
-class MetaRing(ctx: Context) : View(ctx) {
+class MetaRing(ctx: Context, private val sizeDp: Int = 88) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
     private var mostrado = 0f
     private var alvo = -1
@@ -77,7 +77,7 @@ class MetaRing(ctx: Context) : View(ctx) {
         }
     }
 
-    override fun onMeasure(w: Int, h: Int) { val s = (88 * d).toInt(); setMeasuredDimension(s, s) }
+    override fun onMeasure(w: Int, h: Int) { val s = (sizeDp * d).toInt(); setMeasuredDimension(s, s) }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         val cx = w / 2f; val cy = h / 2f

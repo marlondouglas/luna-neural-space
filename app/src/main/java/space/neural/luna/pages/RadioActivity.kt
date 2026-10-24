@@ -58,6 +58,7 @@ class RadioActivity : AppCompatActivity() {
                         true
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        manager.cancelTransmission()
                         lifecycleScope.launch {
                             talkMutex.withLock {
                                 runCatching { manager.stopTalking() }
@@ -137,6 +138,7 @@ class RadioActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        manager.cancelTransmission()
         lifecycleScope.launch { pararMic() }
         super.onPause()
     }

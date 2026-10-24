@@ -51,7 +51,7 @@ data class Estatisticas(
 
     /** Variação em % (null se não há base para comparar). */
     fun variacao(atual: Long, anterior: Long): Double? =
-        if (anterior == 0L) (if (atual == 0L) 0.0 else null) else (atual - anterior) * 100.0 / Math.abs(anterior)
+        if (anterior == 0L) null else (atual.toDouble() - anterior.toDouble()) * 100.0 / kotlin.math.abs(anterior.toDouble())
 
     companion object {
         private val pt = Locale.forLanguageTag("pt-BR")

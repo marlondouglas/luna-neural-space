@@ -32,20 +32,26 @@ import java.util.Base64
  * Respostas podem trazer botões; o botão manda [Botao.comando] de volta.
  * Nada muda nos dados sem ele confirmar.
  */
-class LunaConversa private constructor(private val appCtx: Context) {
+class LunaConversa internal constructor(private val appCtx: Context, private val repo: LunaRepositories = LunaRepositories(appCtx)) {
     data class Botao(val rotulo: String, val comando: String, val principal: Boolean = false)
-    data class Resposta(val texto: String, val botoes: List<Botao> = emptyList(), val usouIa: Boolean? = null)
+    data class Resposta(val texto: String, val botoes: List<Botao> = emptyList(), val usouIa: Boolean? = null, val destino: String? = null)
 
     /** Nota fiscal lida pela IA e ainda não salva. */
     data class Nota(val loja: String, val totalCentavos: Long, val data: String, val itens: String)
 
-    private val repo = LunaRepositories(appCtx)
     private val remoto = RemotoCerebro()
     private val local = LocalCerebro()
     private val trava = Mutex()
     val remotoDisponivel get() = remoto.disponivel
 
     private var ganhoPendente: Comandos.Comando.Ganho? = null
+    private data class FinancePending(val token: String, val expense: Gasto? = null, val income: Ganho? = null,
+        val beforeExpense: Gasto? = null, val beforeIncome: Ganho? = null)
+    private var financePending: FinancePending? = null
+    private var correctingPending = false
+    private var lastFinance: FinancePending? = null
+    private var missingCategory: LunaIntentParser.Intent.Expense? = null
+    private val correctionChoices = mutableMapOf<String, FinancePending>()
     private var nota: Nota? = null
     private var envelopeDaNota: String? = null // id do limite, "comum" ou null
 
@@ -76,6 +82,7 @@ class LunaConversa private constructor(private val appCtx: Context) {
     // ---------------- Comandos no aparelho ----------------
 
     private suspend fun tratarLocal(texto: String, p: Painel): Resposta? {
+        tratarFinanceiro(texto, p)?.let { return it }
         if (texto.startsWith(CMD)) return botao(texto.removePrefix(CMD), p)
         ganhoPendente?.let { pend ->
             when (Comandos.totalOuMais(texto)) {
@@ -119,6 +126,134 @@ class LunaConversa private constructor(private val appCtx: Context) {
                 }) } catch (e: space.neural.luna.sync.TurnoNoOutroAparelho) { Resposta(e.message.orEmpty()) }
             }
             null -> null
+        }
+    }
+
+    private fun propor(expense: Gasto? = null, income: Ganho? = null, beforeExpense: Gasto? = null, beforeIncome: Ganho? = null): Resposta {
+        val pending = FinancePending(java.util.UUID.randomUUID().toString(), expense, income, beforeExpense, beforeIncome)
+        financePending = pending
+        correctingPending = false
+        val amount = expense?.valorCentavos ?: income!!.valorCentavos
+        val date = expense?.data ?: income!!.data
+        val action = if (expense?.deleted == true || income?.deleted == true) "Excluir" else if (beforeExpense != null || beforeIncome != null) "Alterar" else "Registrar"
+        return Resposta("$action ${Fmt.reais(amount)}, $date. ${expense?.descricao ?: "Recebimento"}. Confirmar?",
+            listOf(Botao("Confirmar", "${CMD}finance:confirm:${pending.token}", true), Botao("Corrigir", "${CMD}finance:correct:${pending.token}"), Botao("Cancelar", "${CMD}finance:cancel")))
+    }
+
+    private suspend fun tratarFinanceiro(texto: String, p: Painel): Resposta? {
+        val q = LunaIntentParser.normalize(texto)
+        if (!texto.startsWith(CMD) && !Regex("\\b(gastei|gasto|paguei|comprei|recebi|ganhei)\\b").containsMatchIn(q)
+            && Comandos.interpretar(texto) != null) return null
+        if (Regex("\\b(quanto|qual)\\b").containsMatchIn(q) && Regex("gastei|gasto").containsMatchIn(q)) {
+            val month = "mes" in q
+            val expenses = (p.gastosTodos + p.gastosLimites).distinctBy { it.id }.filter {
+                !it.deleted && if (month) it.data.startsWith(p.hoje.toString().take(7)) else it.data == p.hoje.toString()
+            }
+            return Resposta("Gastos ${if (month) "neste mês" else "de hoje"}: ${Fmt.reais(expenses.sumOf { it.valorCentavos })}.")
+        }
+        if (texto.startsWith("${CMD}finance:choose:")) {
+            val chosen = correctionChoices.remove(texto.substringAfterLast(':')) ?: return Resposta("Essa seleção expirou.")
+            correctionChoices.clear()
+            return propor(chosen.expense, chosen.income, chosen.beforeExpense, chosen.beforeIncome)
+        }
+        if (texto == "${CMD}finance:cancel" || q in setOf("cancelar", "cancela", "nao")) {
+            financePending = null; missingCategory = null; correctingPending = false
+            return Resposta("Cancelado.")
+        }
+        val correction = financePending
+        if (correction != null && (texto == "${CMD}finance:correct:${correction.token}" || q in setOf("corrigir", "corrige"))) {
+            correctingPending = true
+            return Resposta("Qual é o valor correto? Depois eu peço sua confirmação.", listOf(Botao("Cancelar", "${CMD}finance:cancel")))
+        }
+        if (correctingPending && correction != null && !texto.startsWith(CMD)) {
+            val cents = LunaIntentParser.amount(texto) ?: return Resposta("Informe um valor exato, como 20,50, ou cancele.")
+            financePending = correction.copy(expense = correction.expense?.copy(valorCentavos = cents), income = correction.income?.copy(valorCentavos = cents))
+            correctingPending = false
+            return Resposta("Confirmar o valor corrigido de ${Fmt.reais(cents)}?", listOf(
+                Botao("Confirmar", "${CMD}finance:confirm:${correction.token}", true),
+                Botao("Corrigir", "${CMD}finance:correct:${correction.token}"), Botao("Cancelar", "${CMD}finance:cancel")))
+        }
+        if (texto.startsWith("${CMD}finance:confirm:") || (q in setOf("sim", "confirmar", "confirmo") && financePending != null)) {
+            if (correctingPending) return Resposta("Informe o valor correto antes de confirmar.")
+            val pending = financePending ?: return Resposta("Esse lançamento já foi resolvido.")
+            if (texto.startsWith(CMD) && !texto.endsWith(pending.token)) return Resposta("Essa confirmação expirou.")
+            // Mesmo UUID em eventual repetição: upsert não cria um segundo registro.
+            pending.expense?.let { repo.salvarGasto(it) }
+            pending.income?.let { repo.salvarGanho(it) }
+            financePending = null; lastFinance = pending
+            val envelope = pending.expense?.limiteId?.let { id -> painel().envelopes().firstOrNull { it.limite.id == id } }
+            return Resposta("Registrado!" + (envelope?.let { " ${it.limite.nome}: disponível ${Fmt.reais(it.restanteCentavos)} de ${Fmt.reais(it.limite.limiteCentavos)}." } ?: ""),
+                listOf(Botao("Desfazer", "desfazer")))
+        }
+        missingCategory?.let { missing ->
+            val category = p.limites.singleOrNull { LunaIntentParser.normalize(it.nome) == q || texto == "${CMD}finance:category:${it.id}" }
+            if (category != null && missing.cents != null) {
+                missingCategory = null
+                return propor(expense = Gasto(data = missing.date.toString(), categoria = CategoriaGasto.OUTRO,
+                    valorCentavos = missing.cents, limiteId = category.id, descricao = category.nome))
+            }
+        }
+        if (texto.startsWith("${CMD}finance:")) return Resposta("Essa ação expirou. Envie o lançamento novamente.")
+        val command = LunaIntentParser.parse(texto, p.limites.map { it.nome }, p.hoje) ?: return null
+        return when (command) {
+            is LunaIntentParser.Intent.Navigate -> Resposta("Abrindo ${command.destination}.", destino = command.destination)
+            LunaIntentParser.Intent.Limits -> Resposta(p.envelopes().joinToString("\n") {
+                "${it.limite.nome}: gasto ${Fmt.reais(it.gastoCentavos)}, disponível ${Fmt.reais(it.restanteCentavos)} de ${Fmt.reais(it.limite.limiteCentavos)}."
+            }.ifBlank { "Você ainda não cadastrou limites no Planejamento." })
+            LunaIntentParser.Intent.Undo -> {
+                val last = lastFinance ?: return Resposta("Não há lançamento desta conversa para desfazer.")
+                last.expense?.let { if (last.beforeExpense != null) repo.salvarGasto(last.beforeExpense) else repo.excluirGasto(it.id) }
+                last.income?.let { if (last.beforeIncome != null) repo.salvarGanho(last.beforeIncome) else repo.excluirGanho(it.id) }
+                lastFinance = null
+                Resposta("Lançamento desfeito. Os saldos foram recalculados.")
+            }
+            is LunaIntentParser.Intent.Clarify -> Resposta(command.question)
+            is LunaIntentParser.Intent.Correction -> {
+                if (!command.delete && command.newCents == null && command.newCategory == null)
+                    return Resposta("Informe o novo valor ou uma categoria cadastrada.")
+                val targetCategory = p.limites.singleOrNull { it.nome == command.newCategory }
+                val originalCategory = p.limites.singleOrNull { it.nome == command.category }
+                correctionChoices.clear()
+                if (command.income) p.ganhosTodos.filter {
+                    !it.deleted && (command.date == null || it.data == command.date.toString()) && (command.oldCents == null || it.valorCentavos == command.oldCents)
+                }.take(20).forEach { before ->
+                    val token = java.util.UUID.randomUUID().toString()
+                    correctionChoices[token] = FinancePending(token, income = before.copy(valorCentavos = command.newCents ?: before.valorCentavos, deleted = command.delete), beforeIncome = before)
+                } else (p.gastosTodos + p.gastosLimites).distinctBy { it.id }.filter {
+                    !it.deleted && (command.date == null || it.data == command.date.toString()) &&
+                        (command.oldCents == null || it.valorCentavos == command.oldCents) &&
+                        (originalCategory == null || it.limiteId == originalCategory.id)
+                }.take(20).forEach { before ->
+                    val token = java.util.UUID.randomUUID().toString()
+                    correctionChoices[token] = FinancePending(token, expense = before.copy(valorCentavos = command.newCents ?: before.valorCentavos,
+                        limiteId = targetCategory?.id ?: before.limiteId, descricao = targetCategory?.nome ?: before.descricao, deleted = command.delete), beforeExpense = before)
+                }
+                if (correctionChoices.isEmpty()) Resposta("Não encontrei lançamento correspondente. Confira a data e a categoria.")
+                else Resposta("Selecione o lançamento real que deseja ${if (command.delete) "excluir" else "alterar"}:", correctionChoices.map { (id, choice) ->
+                    val amount = choice.beforeExpense?.valorCentavos ?: choice.beforeIncome!!.valorCentavos
+                    val date = choice.beforeExpense?.data ?: choice.beforeIncome!!.data
+                    Botao("$date · ${Fmt.reais(amount)} · ${choice.beforeExpense?.descricao ?: choice.beforeIncome?.app}", "${CMD}finance:choose:$id")
+                })
+            }
+            is LunaIntentParser.Intent.Income -> if (command.cents == null) Resposta("Qual é o valor exato do recebimento?")
+                else propor(income = Ganho(data = command.date.toString(), app = space.neural.luna.data.local.AppCorrida.OUTRO,
+                    valorCentavos = command.cents, descricao = texto.take(200)))
+            is LunaIntentParser.Intent.Expense -> {
+                if (command.cents == null) return Resposta("Qual é o valor exato do gasto? Envie valor e categoria juntos.")
+                val category = p.limites.singleOrNull { it.nome == command.category }
+                val native = LunaIntentParser.nativeCategory(command.description)
+                if (category == null && native != null) return propor(expense = Gasto(
+                    data = command.date.toString(), categoria = native,
+                    valorCentavos = command.cents, descricao = command.description))
+                if (category == null) {
+                    missingCategory = command
+                    Resposta(if (p.limites.isEmpty()) "Cadastre uma categoria com limite no Planejamento para associar esse gasto."
+                        else "Em qual categoria entra ${Fmt.reais(command.cents)}?", p.limites.map {
+                        Botao(it.nome, "${CMD}finance:category:${it.id}")
+                    })
+                } else propor(expense = Gasto(data = command.date.toString(), categoria = CategoriaGasto.OUTRO,
+                    valorCentavos = command.cents, limiteId = category.id, descricao = category.nome))
+            }
         }
     }
 
@@ -220,6 +355,13 @@ class LunaConversa private constructor(private val appCtx: Context) {
         /** Prefixo dos comandos de botão (não são texto dele). */
         const val CMD = "§"
         @Volatile private var inst: LunaConversa? = null
-        fun get(ctx: Context): LunaConversa = inst ?: synchronized(this) { inst ?: LunaConversa(ctx.applicationContext).also { inst = it } }
+        private var owner: String? = null
+        fun get(ctx: Context): LunaConversa = synchronized(this) {
+            val currentOwner = space.neural.luna.conta.TrocaConta.dono(ctx)
+            if (inst == null || owner != currentOwner) {
+                inst = LunaConversa(ctx.applicationContext); owner = currentOwner
+            }
+            inst!!
+        }
     }
 }

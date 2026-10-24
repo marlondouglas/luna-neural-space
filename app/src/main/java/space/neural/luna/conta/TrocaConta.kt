@@ -40,6 +40,8 @@ object TrocaConta {
     /** Chamar logo depois de entrar/criar conta, antes de abrir o painel. Retorna a ação tomada. */
     suspend fun aoEntrar(ctx: Context, uid: String): Acao = withContext(Dispatchers.IO) {
         val app = ctx.applicationContext
+        // Memory is independent of finance: remove only the previous account's opt-in summaries.
+        space.neural.luna.memory.LunaMemoryRepository.onAccountSwitch(app, dono(app), uid)
         val db = LunaDatabase.get(app)
         val acao = decidir(dono(app), uid, temDados(db), db.syncQueries().pendentes())
         if (acao == Acao.APAGAR) apagarLocal(app, uid)

@@ -3,7 +3,15 @@ package space.neural.luna.data.local
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import androidx.room.Insert
 import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface AuditoriaFinanceiraDao {
+    @Insert suspend fun inserir(item: AuditoriaFinanceira)
+    @Query("SELECT * FROM auditoria_financeira WHERE registroId = :id ORDER BY criadaEm, id")
+    suspend fun historico(id: String): List<AuditoriaFinanceira>
+}
 
 @Dao
 interface TurnoDao {

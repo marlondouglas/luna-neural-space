@@ -79,7 +79,16 @@ class LunaRepositories(context: Context, banco: LunaDatabase? = null) {
     // ---- Ganho ----
     fun observeGanhos(): Flow<List<Ganho>> = db.ganhoDao().observeAll()
     suspend fun salvarGanho(item: Ganho) {
-        db.ganhoDao().upsert(item.copy(updatedAt = now(), dirty = true)); sync()
+        require(item.valorCentavos > 0) { "Valor deve ser positivo" }
+        db.withTransaction {
+            val before = db.ganhoDao().byId(item.id)
+            val saved = item.copy(updatedAt = now(), dirty = true)
+            db.ganhoDao().upsert(saved)
+            db.auditoriaFinanceiraDao().inserir(space.neural.luna.data.local.AuditoriaFinanceira(
+                registroId = item.id, tipo = "ganhos", acao = if (item.deleted) "EXCLUSAO" else if (before == null) "CRIACAO" else "ALTERACAO",
+                antes = before?.toString(), depois = saved.toString()))
+        }
+        sync()
     }
     suspend fun excluirGanho(id: String) {
         db.ganhoDao().byId(id)?.let { salvarGanho(it.copy(deleted = true)) }
@@ -88,7 +97,16 @@ class LunaRepositories(context: Context, banco: LunaDatabase? = null) {
     // ---- Gasto ----
     fun observeGastos(): Flow<List<Gasto>> = db.gastoDao().observeAll()
     suspend fun salvarGasto(item: Gasto) {
-        db.gastoDao().upsert(item.copy(updatedAt = now(), dirty = true)); sync()
+        require(item.valorCentavos > 0) { "Valor deve ser positivo" }
+        db.withTransaction {
+            val before = db.gastoDao().byId(item.id)
+            val saved = item.copy(updatedAt = now(), dirty = true)
+            db.gastoDao().upsert(saved)
+            db.auditoriaFinanceiraDao().inserir(space.neural.luna.data.local.AuditoriaFinanceira(
+                registroId = item.id, tipo = "gastos", acao = if (item.deleted) "EXCLUSAO" else if (before == null) "CRIACAO" else "ALTERACAO",
+                antes = before?.toString(), depois = saved.toString()))
+        }
+        sync()
     }
     suspend fun excluirGasto(id: String) {
         db.gastoDao().byId(id)?.let { salvarGasto(it.copy(deleted = true)) }

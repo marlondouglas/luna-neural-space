@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -17,6 +18,10 @@ import kotlin.math.abs
 @Config(sdk = [35], application = Application::class)
 class LunaRigTest {
     private val ctx get() = ApplicationProvider.getApplicationContext<Application>()
+    @Before fun isolateNativeBitmapCache() {
+        // Each Robolectric test has a fresh Application/native graphics context.
+        LunaRig::class.java.getDeclaredField("inst").apply { isAccessible = true }.set(null, null)
+    }
 
     private fun diff(a: Bitmap, b: Bitmap, x0: Int, y0: Int, x1: Int, y1: Int): Double {
         var s = 0.0
@@ -52,7 +57,8 @@ class LunaRigTest {
         val a = Bitmap.createBitmap(rig.size, rig.size, Bitmap.Config.ARGB_8888)
         val b = Bitmap.createBitmap(rig.size, rig.size, Bitmap.Config.ARGB_8888)
         rig.render(a, LunaRig.Estado()); rig.render(b, LunaRig.Estado().apply { blink = 1f })
-        assertTrue(diff(a, b, 145, 192, 312, 222) > 2.0)
+        val eyeDifference = diff(a, b, 145, 192, 312, 222)
+        assertTrue("Diferença da piscada: $eyeDifference", eyeDifference > 2.0)
     }
 
     @Test fun mocapCarregaEPisca() {

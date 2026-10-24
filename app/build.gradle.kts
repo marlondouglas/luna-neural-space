@@ -30,13 +30,15 @@ fun cfg(key: String): String =
 android {
     namespace = "space.neural.luna"
     compileSdk = 35
+    useLibrary("android.car", false)
 
     defaultConfig {
         applicationId = "space.neural.luna"
         minSdk = 26
         targetSdk = 35
-        versionCode = 113
-        versionName = "0.1.13"
+        versionCode = 117
+        versionName = "0.1.17"
+        buildConfigField("String", "ROUTING_BASE_URL", "\"${cfg("ROUTING_BASE_URL")}\"")
 
         buildConfigField("String", "LIVEKIT_URL", "\"${cfg("LIVEKIT_URL")}\"")
         buildConfigField("String", "LIVEKIT_TOKEN_ENDPOINT", "\"${cfg("LIVEKIT_TOKEN_ENDPOINT")}\"")
@@ -79,6 +81,8 @@ ksp {
 }
 
 dependencies {
+    // Official local Sherpa 1.13.8 AAR, pinned SHA-256 in tools/tts/android-voice-manifest.json; all four Android ABIs.
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.service)

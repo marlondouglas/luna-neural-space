@@ -40,6 +40,13 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var id: EditText
     private lateinit var senha: EditText
     private lateinit var confirmar: EditText
+    private lateinit var marcaVeiculo: EditText
+    private lateinit var tipoVeiculo: android.widget.Spinner
+    private lateinit var iconeVeiculo: android.widget.Spinner
+    private lateinit var modelo: EditText
+    private lateinit var cor: EditText
+    private lateinit var placa: EditText
+    private lateinit var veiculo: LinearLayout
     private lateinit var erro: TextView
     private lateinit var botao: android.widget.Button
     private lateinit var esqueci: android.widget.Button
@@ -121,6 +128,24 @@ class LoginActivity : AppCompatActivity() {
         card.addView(bloco("E-mail ou celular", id, "id"), ui.mp(ui.dp(12)))
         card.addView(bloco("Senha", senha, "senha"), ui.mp(ui.dp(12)))
         card.addView(bloco("Confirmar senha", confirmar, "confirmar"), ui.mp(ui.dp(12)))
+        marcaVeiculo = campo("Marca do veículo (opcional, privada)", InputType.TYPE_CLASS_TEXT)
+        modelo = campo("Modelo do veículo (opcional)", InputType.TYPE_CLASS_TEXT)
+        cor = campo("Cor (opcional)", InputType.TYPE_CLASS_TEXT)
+        placa = campo("Placa (opcional)", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        fun selection(labels: List<String>) = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@LoginActivity, android.R.layout.simple_spinner_dropdown_item, labels)
+            minimumHeight = ui.dp(48)
+        }
+        tipoVeiculo = selection(space.neural.luna.collaboration.VehiclePowertrain.entries.map { it.label })
+        iconeVeiculo = selection(space.neural.luna.collaboration.VehicleIcon.entries.map { it.label })
+        veiculo = ui.vbox().apply {
+            addView(rotulo("Meu veículo"))
+            addView(marcaVeiculo, ui.mp(ui.dp(6))); addView(modelo, ui.mp(ui.dp(6))); addView(cor, ui.mp(ui.dp(6))); addView(placa, ui.mp(ui.dp(6)))
+            addView(rotulo("Tipo do veículo (privado)")); addView(tipoVeiculo, ui.mp(ui.dp(6)))
+            addView(rotulo("Ícone representativo (privado)")); addView(iconeVeiculo, ui.mp(ui.dp(6)))
+            addView(ui.text("Marca, tipo e ícone ficam privados; o desenho é representativo. Modelo e cor aparecem nas salas. A placa começa oculta. Depois de entrar, você pode escolher compartilhá-la em Meu veículo e privacidade.", 12f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
+        }
+        card.addView(veiculo, ui.mp(ui.dp(12)))
 
         erro = ui.text("", 14f, Cores.CORAL).apply { visibility = View.GONE }
         card.addView(erro, ui.mp(ui.dp(10)))
@@ -164,6 +189,7 @@ class LoginActivity : AppCompatActivity() {
         marcar(abaCriar, criar); marcar(abaEntrar, !criar)
         (nome.parent as View).visibility = if (criar) View.VISIBLE else View.GONE
         (confirmar.parent as View).visibility = if (criar) View.VISIBLE else View.GONE
+        veiculo.visibility = if (criar) View.VISIBLE else View.GONE
         senha.imeOptions = if (criar) EditorInfo.IME_ACTION_NEXT else EditorInfo.IME_ACTION_DONE
         botao.text = if (criar) "Criar conta e começar 7 dias grátis" else "Entrar"
         esqueci.visibility = if (criar) View.GONE else View.VISIBLE
@@ -187,6 +213,11 @@ class LoginActivity : AppCompatActivity() {
         if (ocupado) return
         val msg = ContaLogica.validar(criar, nome.text.toString(), id.text.toString(), senha.text.toString(), confirmar.text.toString())
         if (msg != null) { mostrarErro(msg); return }
+        val perfil = if (criar) try {
+            space.neural.luna.collaboration.DriverProfile(modelo.text.toString(), cor.text.toString(), placa.text.toString(), false, marcaVeiculo.text.toString(),
+                space.neural.luna.collaboration.VehiclePowertrain.entries[tipoVeiculo.selectedItemPosition],
+                space.neural.luna.collaboration.VehicleIcon.entries[iconeVeiculo.selectedItemPosition]).validated()
+        } catch (e: IllegalArgumentException) { mostrarErro(e.message); return } else null
         val ident = ContaLogica.identificar(id.text.toString())!!
         mostrarErro(null); ocupar(true)
         lifecycleScope.launch {
@@ -196,6 +227,11 @@ class LoginActivity : AppCompatActivity() {
                 Licenca.limpar(this@LoginActivity) // licença é por conta: consulta de novo
                 // v0.1.7: dados locais de outra conta saem; e já desce o que esta conta tem na nuvem.
                 Conta.uid()?.let { TrocaConta.aoEntrar(this@LoginActivity, it) }
+                if (perfil != null) runCatching {
+                    space.neural.luna.collaboration.DriverProfileRepository(this@LoginActivity).save(perfil)
+                }.onFailure {
+                    android.widget.Toast.makeText(this@LoginActivity, "Conta criada. Veículo salvo neste aparelho; confira a sincronização em Meu veículo e privacidade.", android.widget.Toast.LENGTH_LONG).show()
+                }
                 space.neural.luna.sync.SyncManager.requestSync(this@LoginActivity, agora = true)
                 space.neural.luna.sync.RealtimeSync.ligar(this@LoginActivity)
                 startActivity(Intent(this@LoginActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))

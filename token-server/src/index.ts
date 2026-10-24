@@ -1,5 +1,6 @@
 import { AccessToken } from "livekit-server-sdk";
-import { LicenseEnv, handleAdmin, handleCoraWebhook, handleInfinitePayWebhook, handleLicenseCheck, handleLicenseClaim, requireLicense } from "./licenseRoutes";
+import { boundedTokenTtl, liveKitReadiness, publicHealth } from "./backendContract";
+import { LicenseEnv, authenticate, handleAdmin, handleCoraWebhook, handleInfinitePayWebhook, handleLicenseCheck, handleLicenseClaim, requireLicense } from "./licenseRoutes";
 
 /**
  * Servidor de tokens LiveKit do app Rota GV.
@@ -433,6 +434,9 @@ export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Safe public health never mints participant tokens or returns configuration values.
+    if (url.pathname === "/health" || url.pathname === "/healthz") return publicHealth(request.method, env);
+
     if (url.pathname === "/license/check") {
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);
       return handleLicenseCheck(request, env);
@@ -481,7 +485,7 @@ export default {
     if (request.method !== "GET") return json({ error: "Use GET" }, 405);
     if (url.pathname !== "/" && url.pathname !== "/token") return json({ error: "Não encontrado" }, 404);
 
-    if (!env.LIVEKIT_API_SECRET || !env.LIVEKIT_API_KEY || !env.LIVEKIT_URL) {
+    if (!liveKitReadiness(env)) {
       return json({ error: "Servidor sem configuração do LiveKit" }, 500);
     }
 
@@ -491,7 +495,10 @@ export default {
     }
 
     const room = url.searchParams.get("room") ?? "";
-    const identity = url.searchParams.get("identity") ?? "";
+    const authenticated = await authenticate(request, env, false);
+    if (authenticated instanceof Response) return authenticated;
+    // Identity is derived from the verified ID token, never a user-supplied name.
+    const identity = authenticated.user.uid;
     const prefix = env.ROOM_PREFIX ?? "luna-";
 
     if (!ROOM_RE.test(room) || !room.startsWith(prefix)) {
@@ -501,7 +508,7 @@ export default {
       return json({ error: "identity inválida" }, 400);
     }
 
-    const ttl = Number(env.TOKEN_TTL_SECONDS ?? "14400") || 14400;
+    const ttl = boundedTokenTtl(env.TOKEN_TTL_SECONDS);
     const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity, ttl });
     at.addGrant({
       roomJoin: true,

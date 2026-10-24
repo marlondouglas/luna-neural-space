@@ -54,7 +54,6 @@ class ChatActivity : AppCompatActivity() {
     private var botoes: View? = null
     private var falar = false
     private var job: Job? = null
-    private var fotoUri: android.net.Uri? = null
     private lateinit var micBtn: android.widget.ImageButton
     /** v0.1.5: conversa por voz contínua (ouve de novo quando ela termina; barge-in enquanto fala). */
     private val voz by lazy {
@@ -70,8 +69,8 @@ class ChatActivity : AppCompatActivity() {
         val t = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!t.isNullOrBlank()) enviar(t, voz = true)
     }
-    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) fotoUri?.let { lerNota(it) } }
-    private val galeria = registerForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { lerNota(it) } }
+    private val receiptCapture = space.neural.luna.media.ReceiptCapture(this, ::lerNota,
+        { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }, { voz.parar(); space.neural.luna.avatar.LunaVoz.parar() })
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,10 +81,8 @@ class ChatActivity : AppCompatActivity() {
         // Cabeçalho
         val cab = ui.hbox().apply { setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(8)) }
         cab.addView(ui.botaoIcone(R.drawable.ic_close, "Voltar ao painel") { finish() })
-        // v0.1.5: Luna animada maior no topo, falando cada resposta
-        orb = space.neural.luna.avatar.LunaAvatarView(this, focoY = 0.45f, zoom = 0.84f)
-        val lado = if (resources.configuration.smallestScreenWidthDp >= 600) 148 else 116
-        cab.addView(orb, LinearLayout.LayoutParams(ui.dp(lado), ui.dp(lado)).apply { leftMargin = ui.dp(4) })
+        // One animated character in the welcome panel; the header stays compact.
+        orb = space.neural.luna.avatar.LunaAvatarView(this, focoY = 0.5f, zoom = 1f, retrato = true)
         val tit = ui.vbox()
         tit.addView(ui.text("Luna", 22f, Cores.BRANCO, bold = true).apply { setShadowLayer(16f, 0f, 0f, Cores.alpha(Cores.VIOLETA, 0.8f)) })
         status = ui.text("", 13f, Cores.CIANO)
@@ -109,7 +106,17 @@ class ChatActivity : AppCompatActivity() {
         // Mensagens
         lista = ui.vbox().apply { setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8)) }
         rolagem = ScrollView(this).apply { addView(lista); isFillViewport = true }
-        raiz.addView(rolagem, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val wide = resources.configuration.screenWidthDp >= 840 && resources.configuration.screenHeightDp >= 400
+        val welcome = welcomePanel(wide)
+        if (wide) {
+            val body = ui.hbox()
+            body.addView(ScrollView(this).apply { addView(welcome); isFillViewport = true }, LinearLayout.LayoutParams(ui.dp(320), -1))
+            body.addView(rolagem, LinearLayout.LayoutParams(0, -1, 1f))
+            raiz.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            lista.addView(welcome, ui.mp())
+            raiz.addView(rolagem, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
 
         // Sugestões rápidas
         val chips = ui.hbox().apply { setPadding(ui.dp(12), 0, ui.dp(12), 0) }
@@ -150,6 +157,7 @@ class ChatActivity : AppCompatActivity() {
             val h = conversa.historico()
             if (h.isEmpty()) {
                 bolha("Oi${space.neural.luna.conta.Conta.vocativo()}! Sou a Luna. Posso te contar como está o dia, quanto falta para a meta, ler a foto de uma nota fiscal ou lançar uma corrida — é só dizer, por exemplo, \"30 na Uber\".", false)
+                rolagem.post { rolagem.scrollTo(0, 0) }
             } else h.forEach { bolha(it.content, it.role == "user", animar = false) }
             intent.getStringExtra(EXTRA_PERGUNTA)?.takeIf { savedInstanceState == null }?.let { enviar(it) }
         }
@@ -157,6 +165,23 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onDestroy() { voz.destruir(); if (isFinishing) space.neural.luna.avatar.LunaVoz.parar(); super.onDestroy() }
     override fun onStop() { if (voz.ativa || voz.escutando) voz.parar(null); super.onStop() }
+
+    private fun welcomePanel(wide: Boolean): View {
+        val compact = wide && resources.configuration.screenHeightDp < 600
+        val panel = ui.vbox(ui.dp(12)).apply {
+            background = ui.fundo(Cores.OBSIDIAN, Cores.alpha(Cores.VIOLETA, .7f), 20f)
+        }
+        panel.addView(ui.text("Olá! Eu sou a Luna", if (compact) 18f else 22f, Cores.BRANCO, true), ui.mp())
+        if (!compact) panel.addView(ui.text("Sua assistente no ROTA GV", 14f, Cores.CIANO), ui.mp(ui.dp(4)))
+        panel.addView(orb, LinearLayout.LayoutParams(-1, ui.dp(if (compact) 112 else if (wide) 240 else 196)))
+        if (compact) {
+            panel.addView(ui.text("Fale, envie uma foto ou digite nos controles abaixo.", 13f, Cores.BRANCO_70), ui.mp(ui.dp(4)))
+            return panel
+        }
+        panel.addView(ui.text("Como posso te ajudar hoje?", 18f, Cores.BRANCO, true), ui.mp(ui.dp(4)))
+        panel.addView(ui.text("Consulte seus ganhos, revise metas ou envie uma foto de comprovante.", 14f, Cores.BRANCO_70), ui.mp(ui.dp(6)))
+        return panel
+    }
 
     private fun alternarVoz() {
         if (voz.ativa || voz.escutando) { pararVoz(); return }
@@ -186,6 +211,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun ditar() {
+        voz.motivoBloqueio()?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show(); return }
         if (voz.disponivel()) { space.neural.luna.avatar.LunaVoz.parar(); voz.iniciar(); return }
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -216,8 +242,28 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun responder(r: LunaConversa.Resposta) {
+        LunaNavigationController.open(this, r.destino)
+        if (falar || voz.ativa) {
+            val owner = space.neural.luna.conta.Conta.uid()
+            var shown = false
+            val reveal = {
+                if (!shown && !isDestroyed && space.neural.luna.conta.Conta.uid() == owner) {
+                    shown = true
+                    mostrarResposta(r)
+                }
+            }
+            val done = { reveal(); orb.ativa = false; atualizarStatus(null) }
+            status.text = "Preparando voz…"
+            orb.ativa = true
+            if (voz.ativa) voz.falar(r.texto, aoIniciar = reveal, aoTerminar = done)
+            else space.neural.luna.avatar.LunaVoz.falarSincronizado(this, r.texto, reveal, done)
+            return
+        }
+        mostrarResposta(r)
+    }
+
+    private fun mostrarResposta(r: LunaConversa.Resposta) {
         bolha(r.texto, false)
-        if (falar || voz.ativa) ler(r.texto)
         if (r.botoes.isEmpty()) return
         val grade = ui.vbox()
         r.botoes.chunked(2).forEach { par ->
@@ -233,16 +279,12 @@ class ChatActivity : AppCompatActivity() {
 
     private fun escolherFoto(ancora: View) {
         val m = android.widget.PopupMenu(this, ancora)
-        m.menu.add(0, 1, 0, "Tirar foto da nota")
+        if (receiptCapture.canTakePhoto()) m.menu.add(0, 1, 0, "Tirar foto da nota")
         m.menu.add(0, 2, 1, "Escolher da galeria")
         m.setOnMenuItemClickListener {
             if (it.itemId == 1) {
-                val dir = java.io.File(cacheDir, "fotos").apply { mkdirs() }
-                val f = java.io.File(dir, "nota.jpg")
-                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
-                fotoUri = uri
-                runCatching { camera.launch(uri) }.onFailure { Toast.makeText(this, "Câmera indisponível. Use a galeria.", Toast.LENGTH_SHORT).show() }
-            } else runCatching { galeria.launch("image/*") }
+                receiptCapture.capture()
+            } else receiptCapture.selectImage()
             true
         }
         m.show()

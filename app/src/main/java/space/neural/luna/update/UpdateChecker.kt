@@ -11,12 +11,15 @@ import java.net.URL
 import kotlin.coroutines.coroutineContext
 
 /** Última versão publicada no GitHub Releases. */
-data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?, val apkSize: Long)
+data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?, val apkSize: Long,
+    val sha256: String? = null, val versionCode: Long? = null, val minSdk: Int = 26,
+    val channel: String = "stable", val releaseNotes: List<String> = emptyList())
 
 /** Erro com mensagem pronta para mostrar ao usuário. */
 class UpdateException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 object UpdateChecker {
+    const val MANIFEST_URL = "https://github.com/marlondouglas/luna-neural-space/releases/latest/download/update-manifest.json"
     const val LATEST_URL = "https://api.github.com/repos/marlondouglas/luna-neural-space/releases/latest"
 
     /**
@@ -37,6 +40,14 @@ object UpdateChecker {
     }
 
     suspend fun fetchLatest(): ReleaseInfo = withContext(Dispatchers.IO) {
+        val manifest = (URL(MANIFEST_URL).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000; readTimeout = 15_000
+        }
+        try {
+            if (manifest.responseCode in 200..299) return@withContext parseManifest(
+                manifest.inputStream.bufferedReader().use { it.readText() })
+            if (manifest.responseCode != 404) throw UpdateException("Falha ao consultar manifesto (${manifest.responseCode}).")
+        } finally { manifest.disconnect() }
         val conn = try {
             (URL(LATEST_URL).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
@@ -70,6 +81,7 @@ object UpdateChecker {
             if (tag.isBlank()) throw UpdateException("Resposta do GitHub sem versão.")
             var apkUrl: String? = null
             var size = -1L
+            var hash: String? = null
             val assets = json.optJSONArray("assets")
             if (assets != null) {
                 for (i in 0 until assets.length()) {
@@ -77,11 +89,12 @@ object UpdateChecker {
                     if (a.optString("name").endsWith(".apk", ignoreCase = true)) {
                         apkUrl = a.optString("browser_download_url").ifBlank { null }
                         size = a.optLong("size", -1)
+                        hash = a.optString("digest").removePrefix("sha256:").takeIf { Regex("[a-fA-F0-9]{64}").matches(it) }
                         break
                     }
                 }
             }
-            ReleaseInfo(tag, normalize(tag), apkUrl, size)
+            ReleaseInfo(tag, normalize(tag), apkUrl, size, sha256 = hash)
         } catch (e: UpdateException) {
             throw e
         } catch (e: Exception) {
@@ -91,9 +104,44 @@ object UpdateChecker {
         }
     }
 
+    fun parseManifest(text: String): ReleaseInfo {
+        val j = JSONObject(text)
+        val url = j.getString("apkUrl")
+        requireHttps(url)
+        val hash = j.getString("sha256")
+        if (!Regex("[a-fA-F0-9]{64}").matches(hash)) throw UpdateException("Manifesto sem SHA-256 válido.")
+        val version = j.getString("versionName")
+        if (!Regex("[0-9]+(\\.[0-9]+){1,3}").matches(version)) throw UpdateException("Versão inválida no manifesto.")
+        val code = j.getLong("versionCode")
+        if (code <= 0) throw UpdateException("Código de versão inválido.")
+        val notes = j.optJSONArray("releaseNotes")
+        return ReleaseInfo("v$version", version, url, j.optLong("apkSize", -1), hash, code,
+            j.optInt("minSdk", 26), j.optString("channel", "stable"),
+            if (notes == null) emptyList() else (0 until notes.length()).map { notes.getString(it) })
+    }
+
+    fun requireHttps(value: String) {
+        val u = runCatching { URL(value) }.getOrNull()
+        if (u == null || u.protocol != "https" || u.host.isBlank() || u.userInfo != null)
+            throw UpdateException("Atualizações exigem endereço HTTPS válido.")
+    }
+
+    fun verifyHash(file: File, expected: String?) {
+        if (expected == null || !Regex("[a-fA-F0-9]{64}").matches(expected))
+            throw UpdateException("A publicação não possui SHA-256 verificável. Instalação bloqueada.")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val bytes = ByteArray(64 * 1024)
+            while (true) { val n = input.read(bytes); if (n < 0) break; digest.update(bytes, 0, n) }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        if (!actual.equals(expected, true)) throw UpdateException("Integridade inválida: SHA-256 diferente da publicação.")
+    }
+
     /** Baixa o APK para [dest]. [onProgress] recebe 0..100, ou -1 se o tamanho for desconhecido. */
     suspend fun download(url: String, dest: File, expectedSize: Long, onProgress: (Int) -> Unit) =
         withContext(Dispatchers.IO) {
+            requireHttps(url)
             dest.parentFile?.mkdirs()
             val tmp = File(dest.parentFile, dest.name + ".part")
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {

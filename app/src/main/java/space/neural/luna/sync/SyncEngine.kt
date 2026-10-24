@@ -70,7 +70,15 @@ class SyncEngine(
                 val remoto = c.fromMap(d.id, d.data) ?: continue
                 val local = c.byId(d.id)
                 val vLocal = local?.let { Conflito.Versao(it.updatedAt, if (it.dirty) deviceId else null) }
-                if (Conflito.remotoVence(vLocal, Conflito.Versao(remoto.updatedAt, d.deviceId))) { c.upsert(remoto); n++ }
+                if (Conflito.remotoVence(vLocal, Conflito.Versao(remoto.updatedAt, d.deviceId))) {
+                    if (c.name in setOf("gastos", "ganhos") && local != null && local.toString() != remoto.toString()) {
+                        db.auditoriaFinanceiraDao().inserir(space.neural.luna.data.local.AuditoriaFinanceira(
+                            registroId = d.id, tipo = c.name,
+                            acao = if (local.dirty) "CONFLITO_REMOTO" else "ATUALIZACAO_REMOTA",
+                            antes = local.toString(), depois = remoto.toString()))
+                    }
+                    c.upsert(remoto); n++
+                }
             }
         }
         avancar(c.name, docs)

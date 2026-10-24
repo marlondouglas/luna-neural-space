@@ -91,10 +91,11 @@ object LunaMotor : Runnable {
         ty += 0.3f * 1.6f * sin(2 * PI * t / 8 * 1.3 + 2).toFloat()
         val breath = (0.5 + 0.5 * sin(2 * PI * t / 4.0)).toFloat()
         estado.w.fill(0f)
-        if (falandoAgora && f != null) {
-            f.at(p, pesos); pesos.copyInto(estado.w)
-            val fi = (p * f.fps).toInt().coerceIn(0, f.frames - 1)
-            ty += f.nod[fi]; brow = max(brow, 0.8f * f.brow[fi])
+        if (falandoAgora) {
+            val track = f
+            track.at(p, pesos); pesos.copyInto(estado.w)
+            val fi = (p * track.fps).toInt().coerceIn(0, track.frames - 1)
+            ty += track.nod[fi]; brow = max(brow, 0.8f * track.brow[fi])
         }
         estado.smile = ((if (falandoAgora) 0.18f else 0.3f) + smile).coerceIn(0.05f, 0.45f)
         estado.brow = brow.coerceIn(0f, 1f)

@@ -38,7 +38,7 @@ LICENSE_ENFORCE = "1"
 #   npx wrangler kv namespace create LICENSES)
 [[kv_namespaces]]
 binding = "LICENSES"
-id = "cfaaffc8a4f0416d9a9b49389b86d35c"
+id = "89768b66358940df96f290bedded04eb"
 
 # Workers AI (plano gratuito), usado em POST /chat.
 [ai]

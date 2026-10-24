@@ -25,16 +25,18 @@ import java.util.Locale
 
 /** Paleta da spec (só estas cinco cores, com transparência). */
 object Cores {
-    const val OBSIDIAN = 0xFF07060E.toInt()
-    const val BRANCO = 0xFFF3F0FF.toInt()
-    const val VIOLETA = 0xFF8D6BFF.toInt()
-    const val CIANO = 0xFF49E0FF.toInt()
-    const val ESMERALDA = 0xFF3EE0A0.toInt()
+    const val OBSIDIAN = 0xFF080B20.toInt()
+    const val SUPERFICIE = 0xFF11152F.toInt()
+    const val ELEVADA = 0xFF1A1C40.toInt()
+    const val BRANCO = 0xFFF7F7FF.toInt()
+    const val VIOLETA = 0xFF8B24FF.toInt()
+    const val CIANO = 0xFF00DDF3.toInt()
+    const val ESMERALDA = 0xFF00E5A4.toInt()
     // Acentos neon (v0.1.4)
-    const val MAGENTA = 0xFFFF4FD8.toInt()
-    const val LARANJA = 0xFFFF9F43.toInt()
+    const val MAGENTA = 0xFFEC21D8.toInt()
+    const val LARANJA = 0xFFFFB020.toInt()
     /** Só para variação negativa (pílula ▼) e valores abaixo de zero, sempre com ícone/sinal. */
-    const val CORAL = 0xFFFF5C7A.toInt()
+    const val CORAL = 0xFFFF4169.toInt()
     /** Amarelo neon (corridas particulares). */
     const val AMARELO = 0xFFFFE15A.toInt()
 
@@ -42,7 +44,7 @@ object Cores {
 
     /** Violeta a 10% sobre obsidian (fundo dos cards). */
     val CARD: Int = mix(OBSIDIAN, VIOLETA, 0.10f)
-    val BRANCO_70 = alpha(BRANCO, 0.70f)
+    val BRANCO_70 = 0xFFB5B8D5.toInt()
     val BRANCO_40 = alpha(BRANCO, 0.40f)
 
     fun mix(base: Int, over: Int, a: Float): Int = Color.rgb(
@@ -182,7 +184,7 @@ class Ui(val ctx: Context) {
     /** Pílula de variação: ▲ +12,4% (esmeralda) / ▼ −5,0% (coral) / neutra. */
     fun pilula(variacao: Double?, sufixo: String): TextView {
         val (txt, cor) = when {
-            variacao == null -> "● novo $sufixo" to Cores.BRANCO_70
+              variacao == null -> "● sem base $sufixo" to Cores.BRANCO_70
             variacao >= 0.05 -> "▲ +${Fmt.pct(variacao)} $sufixo" to Cores.ESMERALDA
             variacao <= -0.05 -> "▼ −${Fmt.pct(-variacao)} $sufixo" to Cores.CORAL
             else -> "● 0% $sufixo" to Cores.BRANCO_70
@@ -238,12 +240,13 @@ class Ui(val ctx: Context) {
             val (bg, fg) = when (estilo) {
                 Estilo.CHEIO_VIOLETA -> GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Cores.mix(Cores.VIOLETA, Cores.BRANCO, 0.15f), Cores.mix(Cores.VIOLETA, Cores.MAGENTA, 0.45f))).apply {
                     cornerRadius = dpf(14f); setStroke(dp(1), Cores.alpha(Cores.BRANCO, 0.35f))
-                } to Cores.OBSIDIAN
+                } to Cores.BRANCO
                 Estilo.CHEIO_ESMERALDA -> fundo(Cores.ESMERALDA, raio = 14f) to Cores.OBSIDIAN
-                Estilo.CONTORNO -> fundo(Color.TRANSPARENT, Cores.alpha(Cores.VIOLETA, 0.8f), 14f) to Cores.BRANCO
+                  Estilo.CONTORNO -> fundo(Cores.ELEVADA, Cores.alpha(Cores.VIOLETA, 0.8f), 14f) to Cores.BRANCO
                 Estilo.TEXTO -> fundo(Color.TRANSPARENT, raio = 14f) to Cores.VIOLETA
             }
             setTextColor(fg)
+            backgroundTintList = null
             if (estilo != Estilo.CONTORNO && estilo != Estilo.TEXTO) setTypeface(typeface, Typeface.BOLD)
             background = RippleDrawable(ColorStateList.valueOf(Cores.alpha(Cores.BRANCO, 0.25f)), bg, null)
             if (estilo == Estilo.CHEIO_VIOLETA || estilo == Estilo.CHEIO_ESMERALDA) {
@@ -310,17 +313,17 @@ class VidroDrawable(
         val w = b.width().toFloat(); val h = b.height().toFloat()
         val t = android.graphics.Shader.TileMode.CLAMP
         corpo.shader = if (colorido) android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
-            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.62f), 0.95f), Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.mix(acento, Cores.VIOLETA, 0.6f), 0.38f), 0.95f),
-                Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.22f), 0.95f)), floatArrayOf(0f, 0.55f, 1f), t)
+            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.62f), 1f), Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.mix(acento, Cores.VIOLETA, 0.6f), 0.38f), 1f),
+                Cores.alpha(Cores.mix(Cores.OBSIDIAN, Cores.VIOLETA, 0.22f), 1f)), floatArrayOf(0f, 0.55f, 1f), t)
         else android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(),
-            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, if (destaque) 0.26f else 0.18f), 0.92f),
-                Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.06f), 0.92f)), null, t)
+            intArrayOf(Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, if (destaque) 0.26f else 0.18f), 1f),
+                Cores.alpha(Cores.mix(Cores.OBSIDIAN, acento, 0.06f), 1f)), null, t)
         brilho.shader = android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.top + h * 0.45f,
-            intArrayOf(Cores.alpha(Cores.BRANCO, 0.30f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
+            intArrayOf(Cores.alpha(Cores.BRANCO, 0.16f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
         bisel.shader = android.graphics.LinearGradient(0f, b.bottom - h * 0.25f, 0f, b.bottom.toFloat(),
             intArrayOf(0, Cores.alpha(Cores.OBSIDIAN, 0.85f)), null, t)
         borda.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.left + w, b.bottom.toFloat(),
-            intArrayOf(Cores.alpha(acento, if (destaque) 0.9f else 0.55f), Cores.alpha(Cores.CIANO, 0.15f), Cores.alpha(Cores.MAGENTA, if (destaque) 0.5f else 0.25f)), null, t)
+            intArrayOf(Cores.alpha(acento, if (destaque) 1f else 0.85f), Cores.alpha(Cores.CIANO, 0.15f), Cores.alpha(Cores.MAGENTA, if (destaque) 0.5f else 0.25f)), null, t)
         reflexo.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), b.left + w * 0.6f, b.top + h * 0.6f,
             intArrayOf(Cores.alpha(Cores.BRANCO, 0.07f), Cores.alpha(Cores.BRANCO, 0f)), null, t)
         path.reset(); path.moveTo(b.left.toFloat(), b.top.toFloat()); path.lineTo(b.left + w * 0.55f, b.top.toFloat())

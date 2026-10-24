@@ -34,11 +34,17 @@ class ConfiguracoesActivity : AppCompatActivity() {
         val dlg = Dialogos(this, LunaRepositories(this), lifecycleScope)
         val (raiz, c) = telaSimples(this, ui, "Configurações")
 
+        grupo(c, R.drawable.ic_car, "Motorista e privacidade", Cores.CIANO) { g ->
+            item(g, R.drawable.ic_car, "Meu veículo", "Marca, modelo, cor, tipo, ícone e placa privada") {
+                space.neural.luna.pages.DriverProfileEditor.show(this)
+            }
+        }
+
         grupo(c, R.drawable.ic_chat, "Luna", Cores.MAGENTA) { g ->
             item(g, R.drawable.ic_chat, "Conversar com a Luna", "Abre a conversa completa") { startActivity(Intent(this, ChatActivity::class.java)) }
             chave(g, R.drawable.ic_volume, "Luna fala os alertas", "Meta batida, R$/hora baixo e outros avisos em voz", "voz_alertas", true)
-            chave(g, R.drawable.ic_mic, "Conversa contínua", "Depois de responder, a Luna volta a ouvir até você ficar em silêncio ou dizer “tchau”", "conversa_continua", true)
-            chave(g, R.drawable.ic_mic, "Interromper a Luna falando", "Se você começar a falar, ela para e escuta (experimental)", "barge_in", true)
+            chave(g, R.drawable.ic_mic, "Conversa com resposta por voz", "Opcional: após a fala, abre uma janela curta e visível para responder. Desligado por padrão.", "conversa_continua", false)
+            chave(g, R.drawable.ic_mic, "Interromper a Luna falando", "Captação opcional experimental; respeita rádio e chamada", "barge_in", false)
         }
         grupo(c, R.drawable.ic_wallet, "Lançamentos", Cores.CIANO) { g ->
             item(g, R.drawable.ic_trending, "Histórico", "Dias concluídos e turnos") { startActivity(Intent(this, HistoricoActivity::class.java)) }

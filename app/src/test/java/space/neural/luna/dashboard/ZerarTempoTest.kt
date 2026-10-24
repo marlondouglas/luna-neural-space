@@ -113,7 +113,9 @@ class ZerarTempoTest {
 
     @Test fun dialogoNoCardProntoENoTurnoAtivo() {
         doisFechados()
-        val act = Robolectric.buildActivity(MainActivity::class.java).setup().get(); idle()
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val act = controller.get(); idle()
+        try {
         // turno 3 pronto: agora tem "Zerar tempo" também
         val botao = achar(act.window.decorView) { it is Button && it.text == "Zerar tempo" }
         assertNotNull("botão Zerar tempo no turno pronto", botao)
@@ -130,6 +132,13 @@ class ZerarTempoTest {
         d.dismiss()
         // turno 3 em andamento: as três opções
         runBlocking { acoes.iniciar(painel().situacao) }; idle()
+        // Room invalidation runs on its own executor; virtual looper time alone cannot await it.
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+        while (achar(act.window.decorView) { it is Button && it.text == "Pausar" } == null && System.nanoTime() < deadline) {
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        assertNotNull("A tela deve receber o turno ativo antes de abrir o diálogo", achar(act.window.decorView) { it is Button && it.text == "Pausar" })
         act.zerar(); idle()
         val d2 = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
         val t2 = mutableListOf<String>()
@@ -145,6 +154,7 @@ class ZerarTempoTest {
         runBlocking { kotlinx.coroutines.delay(300) }; idle()
         assertEquals(1, painel().situacao.numero)
         assertTrue(MaquinaTurno.doDia(painel().turnosTodos, hoje).isEmpty())
+        } finally { controller.pause().stop().destroy() }
     }
 
     private fun print(v: View, nome: String) {

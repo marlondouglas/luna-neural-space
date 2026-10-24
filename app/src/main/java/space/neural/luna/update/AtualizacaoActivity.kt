@@ -105,6 +105,8 @@ class AtualizacaoActivity : AppCompatActivity() {
                 release = r
                 versoes.text = "Versão instalada: ${versaoInstalada()}\nÚltima versão: ${r.version} (${r.tag})"
                 if (UpdateChecker.compare(r.version, versaoInstalada()) > 0) {
+                    if (r.minSdk > android.os.Build.VERSION.SDK_INT) throw UpdateException("Esta atualização exige Android API ${r.minSdk}.")
+                    if (r.channel != "stable") throw UpdateException("Manifesto fora do canal estável.")
                     if (r.apkUrl == null) {
                         mostrarErro("Há uma versão nova, mas ela ainda não tem APK para baixar.") { verificar() }
                     } else {
@@ -147,10 +149,16 @@ class AtualizacaoActivity : AppCompatActivity() {
                         status.text = "Baixando... $p%"
                     }
                 }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    UpdateChecker.verifyHash(dest, r.sha256)
+                }
+                validarApk(dest, r)
                 apkBaixado = dest
                 progresso.visibility = View.GONE
-                status.text = "Download concluído."
-                instalar()
+                status.text = "Download validado. Confirme para abrir o instalador do Android."
+                botaoBaixar.text = "Instalar atualização verificada"
+                botaoBaixar.visibility = View.VISIBLE
+                botaoBaixar.setOnClickListener { instalar() }
             } catch (e: UpdateException) {
                 progresso.visibility = View.GONE
                 mostrarErro(e.message ?: "Falha no download.", "Tentar baixar de novo") { baixar(r) }
@@ -163,6 +171,26 @@ class AtualizacaoActivity : AppCompatActivity() {
     }
 
     private fun podeInstalar(): Boolean = packageManager.canRequestPackageInstalls()
+
+    @Suppress("DEPRECATION")
+    private fun validarApk(apk: File, info: ReleaseInfo) {
+        val flags = if (android.os.Build.VERSION.SDK_INT >= 28) android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES else android.content.pm.PackageManager.GET_SIGNATURES
+        val candidate = packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
+            ?: throw UpdateException("O arquivo não é um APK válido.")
+        val installed = packageManager.getPackageInfo(packageName, flags)
+        if (candidate.packageName != packageName) throw UpdateException("O APK pertence a outro aplicativo.")
+        val code = if (android.os.Build.VERSION.SDK_INT >= 28) candidate.longVersionCode else candidate.versionCode.toLong()
+        if (code <= BuildConfig.VERSION_CODE || info.versionCode?.let { it != code } == true || candidate.versionName != info.version)
+            throw UpdateException("A versão do APK não corresponde à atualização publicada.")
+        if (candidate.applicationInfo?.minSdkVersion?.let { it > android.os.Build.VERSION.SDK_INT } == true)
+            throw UpdateException("APK incompatível com a versão Android deste dispositivo.")
+        fun certificates(p: android.content.pm.PackageInfo): Set<String> {
+            val sigs = if (android.os.Build.VERSION.SDK_INT >= 28) p.signingInfo?.apkContentsSigners else p.signatures
+            return sigs.orEmpty().map { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } }.toSet()
+        }
+        val current = certificates(installed)
+        if (current.isEmpty() || current != certificates(candidate)) throw UpdateException("Assinatura diferente do aplicativo instalado. Atualização bloqueada para preservar os dados.")
+    }
 
     private fun instalar() {
         val apk = apkBaixado ?: return
@@ -187,6 +215,9 @@ class AtualizacaoActivity : AppCompatActivity() {
 
     private fun abrirInstalador(apk: File) {
         try {
+            val info = release ?: throw UpdateException("Consulte a atualização novamente.")
+            UpdateChecker.verifyHash(apk, info.sha256)
+            validarApk(apk, info)
             val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
             startActivity(
                 Intent(Intent.ACTION_VIEW)

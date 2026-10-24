@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "tsc -p tsconfig.test.json && echo '{\"type\":\"module\"}' > build-test/package.json && node --test test/license.test.mjs",
+    "test": "tsc -p tsconfig.test.json && node -e \"require('node:fs').writeFileSync('build-test/package.json',JSON.stringify({type:'module'}))\" && node --test test/license.test.mjs test/backend-contract.test.mjs",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

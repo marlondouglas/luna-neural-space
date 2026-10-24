@@ -90,6 +90,8 @@ class PainelSmokeTest {
         repeat(20) { shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
         val raiz = act.window.decorView
         assertTrue(raiz.width > 0)
+        val dock = raiz.findViewWithTag<android.view.ViewGroup>("primary_navigation")
+        org.junit.Assert.assertEquals(listOf("Início", "Mapa e Rádio", "Ofertas"), (0 until dock.childCount).map { dock.getChildAt(it).contentDescription.toString() })
         semEstouro(raiz)
         // o título do card da Luna aparece inteiro (sem "Fale com a L…")
         fun achar(v: View): android.widget.TextView? = if (v is android.widget.TextView && v.text.toString() == "Fale com a Luna…") v
@@ -137,10 +139,14 @@ class PainelSmokeTest {
     private fun print(v: View, nome: String) {
         val dir = System.getProperty("luna.shots") ?: return
         if (v.width <= 0 || v.height <= 0) return
-        val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        val b = Bitmap.createBitmap(v.width, v.height + 24, Bitmap.Config.ARGB_8888)
         val cv = Canvas(b)
         if (v.background == null) FundoNeon().apply { setBounds(0, 0, v.width, v.height) }.draw(cv)
         v.draw(cv)
+        val label = android.graphics.Paint().apply { color = Cores.OBSIDIAN }
+        cv.drawRect(0f, v.height.toFloat(), v.width.toFloat(), b.height.toFloat(), label)
+        label.color = Cores.CIANO; label.textSize = 12f
+        cv.drawText("TESTE · dados simulados · renderização sem aparelho", 6f, v.height + 17f, label)
         File(dir).mkdirs()
         File(dir, "$nome.png").outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
@@ -152,6 +158,10 @@ class PainelSmokeTest {
     @Test @Config(qualifiers = "w891dp-h411dp-land-xxhdpi") fun telefonePaisagem() = abrir("telefone-paisagem")
     @Test @Config(qualifiers = "w800dp-h1280dp-port-mdpi") fun tabletRetrato() = abrir("tablet-retrato")
     @Test @Config(qualifiers = "w1280dp-h720dp-land-mdpi") fun centralPaisagem() = abrir("central-paisagem")
+    @Test @Config(qualifiers = "w411dp-h891dp-port-mdpi") fun telefoneFonteAmpliada() {
+        RuntimeEnvironment.setFontScale(1.6f)
+        abrir("telefone-fonte-ampliada")
+    }
     /** Tablet do Marlon em paisagem (2000x1200 px, ~1333x800 dp) e 1280x800 dp. */
     @Test @Config(qualifiers = "w1333dp-h800dp-land-hdpi") fun tablet2000x1200() = abrir("tablet-2000x1200")
     @Test @Config(qualifiers = "w1280dp-h800dp-land-mdpi") fun tablet1280x800() = abrir("tablet-1280x800")

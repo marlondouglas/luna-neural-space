@@ -81,7 +81,7 @@ const ANDROID_ID_RE = /^[0-9a-fA-F]{8,32}$/;
 type Authed = { user: FirebaseUser; device: string | null };
 
 /** Confere "Authorization: Bearer <ID token do Firebase>" e "X-Device-Id" (ANDROID_ID). */
-async function authenticate(request: Request, env: LicenseEnv, requireDevice: boolean): Promise<Authed | Response> {
+export async function authenticate(request: Request, env: LicenseEnv, requireDevice: boolean): Promise<Authed | Response> {
   if (!env.FIREBASE_PROJECT_ID) return json({ error: "Servidor sem FIREBASE_PROJECT_ID" }, 500);
   const h = request.headers.get("authorization") ?? "";
   const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
