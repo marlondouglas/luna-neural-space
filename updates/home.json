@@ -1,5 +1,10 @@
 {
-  "enabled": false,
+  "enabled": true,
   "packageName": "space.neural.luna.home",
-  "note": "Canal independente preparado. Nenhum APK oferecido antes de uma publicacao assinada e autorizada."
+  "versionCode": 10,
+  "versionName": "0.10.0-test",
+  "apkUrl": "https://github.com/marlondouglas/luna-neural-space/releases/download/home-r10/home.apk",
+  "apkSize": 56049525,
+  "sha256": "039f98a526491c8642b25b7778eefacf36cae826654dbf1a28f4e914d12042bf",
+  "minSdk": 26
 }
