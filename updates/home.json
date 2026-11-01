@@ -1,10 +1,10 @@
 {
   "enabled": true,
   "packageName": "space.neural.luna.home",
-  "versionCode": 25,
-  "versionName": "0.25.0-test",
-  "apkUrl": "https://github.com/marlondouglas/luna-neural-space/releases/download/home-r25/home.apk",
-  "apkSize": 56065983,
-  "sha256": "a4ddf38321a738794504a4f0ba730c1a904b9758a87e458892be2bd3a04dbfe8",
+  "versionCode": 26,
+  "versionName": "0.26.0-test",
+  "apkUrl": "https://github.com/marlondouglas/luna-neural-space/releases/download/home-r26/home.apk",
+  "apkSize": 56082367,
+  "sha256": "682ae0c5376b86f9e9abed856d02b8283b7018139d9aba7de8722c0be93fa39a",
   "minSdk": 26
 }
