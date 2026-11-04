@@ -1,0 +1,73 @@
+name: Publicar ROTA GV 0.1.72 verificada
+
+on:
+  push:
+    branches:
+      - publish/rota-gv-172
+    paths:
+      - '.github/workflows/publish-signed-172.yml'
+      - 'release-assets/v0.1.72/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rota-gv-172-publicacao
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-apks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout dos APKs assinados
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Preparar verificacao Android
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Conferir certificado original, versao, pacote e integridade
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          CERT='3a714a3f1f6bd4454f768390e33d1f556f035fd6ea3c99c274c0b2d5daa00c4f'
+          printf '%s\n' \
+            '074316bdff54502aaed19eac727a1b4d192824d4cffc533d4bb0351d65a1fb5a  release-assets/v0.1.72/rota-gv-0.1.72-car.apk' \
+            '0bf4f0f2e91ea56cffdf461634c8e7464687b615b4e737decbf6ec0920ef69ff  release-assets/v0.1.72/rota-gv-0.1.72-mobile.apk' | sha256sum -c
+          for flavor in car mobile; do
+            apk="release-assets/v0.1.72/rota-gv-0.1.72-$flavor.apk"
+            test -s "$apk"
+            "$BT/apksigner" verify --verbose "$apk"
+            actual=$("$BT/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')
+            test "$actual" = "$CERT"
+            metadata=$("$BT/aapt" dump badging "$apk" | head -n1)
+            [[ "$metadata" == *"name='space.neural.luna' versionCode='172' versionName='0.1.72'"* ]]
+            if "$BT/aapt" dump xmltree "$apk" AndroidManifest.xml | grep -E 'android:debuggable.*0xffffffff'; then
+              echo "::error::APK release marcado debuggable: $flavor"
+              exit 1
+            fi
+          done
+
+      - name: Publicar os APKs verificados no GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.72 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::A release v0.1.72 ja existe; rever antes de substituir"
+            exit 1
+          fi
+          gh release create v0.1.72 \
+            release-assets/v0.1.72/rota-gv-0.1.72-car.apk \
+            release-assets/v0.1.72/rota-gv-0.1.72-mobile.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ROTA GV 0.1.72 — Multimidia e Celular" \
+            --notes "Dois APKs Android de distribuicao verificados: CAR (multimidia Geely EX2) e MOBILE (celular e tablet Android compativeis). Pacote space.neural.luna, versionCode 172, assinatura original verificada. Instale com o veiculo parado; preservar dados e confirmar compatibilidade do instalador da central. O botao de tablet no site indicara a edicao CAR, sem criar um terceiro APK inexistente." \
+            --target "$GITHUB_SHA" \
+            --latest
